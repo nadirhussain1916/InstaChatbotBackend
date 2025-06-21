@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Instagram Profile Lookup</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+            background-color: #f9f9f9;
+            text-align: center;
+        }
+        form {
+            margin-bottom: 2rem;
+        }
+        input[type="text"] {
+            padding: 0.5rem;
+            width: 200px;
+            font-size: 1rem;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            font-size: 1rem;
+            margin-left: 0.5rem;
+            background-color: #4f46e5;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .error {
+            color: red;
+            margin-bottom: 1rem;
+        }
+        .profile {
+            background: white;
+            padding: 1rem;
+            border-radius: 10px;
+            display: inline-block;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        .profile img {
+            border-radius: 50%;
+            width: 120px;
+            height: 120px;
+            margin-bottom: 1rem;
+        }
+        .profile p {
+            margin: 0.25rem 0;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Instagram Profile Lookup</h1>
+
+    <form method="post">
+    {% csrf_token %}
+    <input type="text" name="username" required placeholder="Instagram username">
+    <button type="submit">Search</button>
+</form>
+
+{% if error %}
+    <p style="color: red;">{{ error }}</p>
+{% endif %}
+
+{% if user_data %}
+    <h2>{{ user_data.full_name }} ({{ user_data.username }})</h2>
+    <p>Followers: {{ user_data.followers }}</p>
+    <p>Posts: {{ user_data.posts }}</p>
+    <img src="{{ user_data.profile_pic_url }}" alt="Profile Picture" style="height:150px; border-radius:50%;">
+{% endif %}
+
+
+</body>
+</html>
