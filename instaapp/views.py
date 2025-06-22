@@ -6,105 +6,139 @@ from django.contrib.auth import authenticate
 from rest_framework.decorators import api_view, permission_classes
 import threading
 import os
+import re
 from rest_framework_simplejwt.tokens import RefreshToken
-from instaapp.models import Instagram_User
-from .serializers import InstagramUserSerializer
-from instaapp.helper import save_user_profile,fetch_user_instagram_profile_data,check_instagram_credentials,get_and_save_post_detail
-# views.py
+from instaapp.models import Instagram_User, InstagramPost
+from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer
+from instaapp.helper import save_user_profile, fetch_user_instagram_profile_data, check_instagram_credentials, get_and_save_post_detail
 from django.contrib.auth.models import User
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import Instagram_User,InstagramPost
-from .serializers import InstagramUserSerializer, InstagramPostSerializer
 from django.shortcuts import get_object_or_404
 import asyncio
 from cryptography.fernet import Fernet
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
 from openai import OpenAI, AuthenticationError, RateLimitError, OpenAIError
-from .serializers import CarouselGeneratorSerializer
 from django.conf import settings
+from .services import ConversationService
+import logging
+from django.db import connection
+
+# Set up logging to console if not already configured
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)s %(name)s %(message)s',
+    )
+
+logger = logging.getLogger(__name__)
+
 fernet = Fernet(settings.SECRET_ENCRYPTION_KEY)
 
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY') 
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
+SYSTEM_PROMPT = "You are a helpful assistant that creates engaging Instagram carousel content."
 
+def process_inspiration(inspiration):
+    """Dummy sync function for inspiration processing. Replace with actual logic if needed."""
+    logger.info(f"[process_inspiration] Called with inspiration: {inspiration}")
+    if inspiration:
+        return f"Inspired by: {inspiration}"
+    return ""
+
+logger.info('[Startup] API and view modules loaded. Logging initialized.')
 
 class CustomSignInView(APIView):
+    http_method_names = ['post']
     def post(self, request):
+        """Handle user sign-in and authentication."""
+        logger.info(f"[CustomSignInView] POST request received. Data: {request.data}")
+        logger.info(f"[CustomSignInView] Checking database connection...")
+        try:
+            connection.ensure_connection()
+            logger.info("[CustomSignInView] Database connection OK.")
+        except Exception as db_exc:
+            logger.error(f"[CustomSignInView] Database connection error: {db_exc}")
+            return Response({'error': 'Database connection error.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         username = request.data.get('username')
         password = request.data.get('password')
-
+        logger.info(f"[CustomSignInView] Params - username: {username}")
         if not username or not password:
+            logger.warning("[CustomSignInView] Username or password missing.")
             return Response({'error': 'Username and password required.'}, status=status.HTTP_400_BAD_REQUEST)
-
         if '@' in username:
+            logger.warning("[CustomSignInView] Email provided instead of username.")
             return Response({'error': 'Please enter your Instagram username, not email.'}, status=status.HTTP_400_BAD_REQUEST)
-
         user = authenticate(username=username, password=password)
-
         if user:
+            logger.info(f"[CustomSignInView] User '{username}' authenticated successfully.")
             refresh = RefreshToken.for_user(user)
-            return Response({
+            response_data = {
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
-            })
+            }
+            logger.info(f"[CustomSignInView] Response: {response_data}")
+            return Response(response_data)
         else:
-            # User doesn't exist or wrong password — now call your external check
+            logger.info(f"[CustomSignInView] User '{username}' not found or wrong password. Checking Instagram credentials.")
             try:
                 user = User.objects.get(username=username)
+                logger.warning(f"[CustomSignInView] Incorrect password for user '{username}'.")
                 return Response({'error': 'Incorrect password'}, status=status.HTTP_401_UNAUTHORIZED)
             except User.DoesNotExist:
-               # First check the Instagram credentials
                 result = check_instagram_credentials(username, password)
-
+                logger.info(f"[CustomSignInView] Instagram credential check result: {result}")
                 if result.get("status") == "success":
-                    # Create the user securely (with hashed password)
                     user = User.objects.create_user(
                         username=username,
                         password=password
                     )
-
-                    # Authenticate the user
                     user = authenticate(username=username, password=password)
-                    # Step 3: Save Instagram user profile (you can fill others later)
                     Instagram_User.objects.create(
                         user=user,
                         username=username,
-                        password=encrypt_password(password)  # 🔒 WARNING: Only store this if you absolutely need to.
-                    )                    
+                        password=encrypt_password(password)
+                    )
                     if user:
                         refresh = RefreshToken.for_user(user)
-                        return Response({
+                        response_data = {
                             "status": "success",
                             "refresh": str(refresh),
                             "access": str(refresh.access_token),
-                        }, status=status.HTTP_201_CREATED)
+                        }
+                        logger.info(f"[CustomSignInView] Response: {response_data}")
+                        return Response(response_data, status=status.HTTP_201_CREATED)
                     else:
+                        logger.error(f"[CustomSignInView] Authentication failed after user creation for '{username}'.")
                         return Response({
                             "status": "error",
                             "message": "Authentication failed after user creation."
                         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
                 else:
+                    logger.warning(f"[CustomSignInView] Instagram credential check failed: {result}")
                     return Response({
                         "status": result.get("status"),
                         "message": result.get("message")
                     }, status=status.HTTP_401_UNAUTHORIZED)
+        logger.info(f"[CustomSignInView] POST request completed for username: {request.data.get('username')}")
 
 class InstagramFetchData(APIView):
     permission_classes = [IsAuthenticated]  # ✅ only authenticated users allowed
 
     def post(self, request):
-        auth_username = request.user.username
-
+        """Fetch Instagram data for the authenticated user."""
+        logger.info(f"[InstagramFetchData] POST request by user: {request.user.username}")
+        logger.info(f"[InstagramFetchData] Request body: {request.data}")
         try:
-            # Fetch Instagram user details using Django username
+            connection.ensure_connection()
+            logger.info("[InstagramFetchData] Database connection OK.")
+        except Exception as db_exc:
+            logger.error(f"[InstagramFetchData] Database connection error: {db_exc}")
+            return Response({'error': 'Database connection error.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        auth_username = request.user.username
+        try:
             insta_user = Instagram_User.objects.get(username=auth_username)
             insta_username = insta_user.username
+            logger.info(f"[InstagramFetchData] Found Instagram_User: {insta_username}")
         except Instagram_User.DoesNotExist:
+            logger.error(f"[InstagramFetchData] Instagram credentials not found for user: {auth_username}")
             return Response(
                 {"error": "Instagram credentials not found for this user."},
                 status=status.HTTP_404_NOT_FOUND
@@ -114,10 +148,12 @@ class InstagramFetchData(APIView):
             # ✅ Define your background task
             def background_task():
                 try:
+                    logger.info(f"[InstagramFetchData] Fetching Instagram profile data for: {insta_username}")
                     res = fetch_user_instagram_profile_data(insta_username)
+                    logger.info(f"[InstagramFetchData] fetch_user_instagram_profile_data response: {res}")
                     if res:
                         business_discovery_res = res.get("business_discovery")
-                        
+                        logger.info(f"[InstagramFetchData] business_discovery: {business_discovery_res}")
                         if business_discovery_res:
                             save_user_profile(
                                 insta_username,
@@ -126,98 +162,80 @@ class InstagramFetchData(APIView):
                                 business_discovery_res.get("media_count"),
                                 business_discovery_res.get("profile_picture_url"),
                             )
-                            print("Instagram data fetched and saved in background.")
+                            logger.info(f"[InstagramFetchData] Instagram data fetched and saved for: {insta_username}")
                         else:
-                            print("⚠️ 'business_discovery' not found in response.")
+                            logger.warning(f"[InstagramFetchData] 'business_discovery' not found in response for: {insta_username}")
                     else:
-                        print("❌ Failed to fetch Instagram profile data.")
+                        logger.error(f"[InstagramFetchData] Failed to fetch Instagram profile data for: {insta_username}")
                 except Exception as e:
-                    print(f"Background task error: {e}")
+                    logger.error(f"[InstagramFetchData] Background task error: {e}")
                 get_and_save_post_detail(insta_username)
+                logger.info(f"[InstagramFetchData] Post details fetched and saved for: {insta_username}")
 
             # ✅ Run it in background
             threading.Thread(target=background_task).start()
+            logger.info(f"[InstagramFetchData] Background data fetching started for: {insta_username}")
             # ✅ Return immediately
             return Response(
                 {"message": "Data fetching started in background."},
                 status=status.HTTP_202_ACCEPTED
             )
         except Exception as e:
+            logger.error(f"[InstagramFetchData] Failed to fetch Instagram data: {str(e)}")
             return Response(
                 {"error": f"Failed to fetch Instagram data: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-# Assume `client` is your OpenAI client instance
-client = OpenAI(api_key=OPENAI_API_KEY)  # or use settings.ENV
+        logger.info(f"[InstagramFetchData] POST request completed for user: {request.user.username}")
 
-SYSTEM_PROMPT = "You are a helpful assistant that creates engaging Instagram carousel content."
-
-async def process_inspiration(inspiration):
-    # Dummy async function (replace with actual processing)
-    await asyncio.sleep(0.1)
-    return f"Inspired by: {inspiration}" if inspiration else ""
-
-
-import re
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def generate_carousel(request):
-    """Generate Instagram carousel content"""
+    """Generate Instagram carousel content using OpenAI."""
+    logger.info(f"[generate_carousel] POST request received. User: {request.user.username}, Data: {request.data}")
     serializer = CarouselGeneratorSerializer(data=request.data)
-
+    logger.info(f"[generate_carousel] Serializer valid: {serializer.is_valid()}")
     if not serializer.is_valid():
+        logger.warning(f"[generate_carousel] Invalid data: {serializer.errors}")
         return Response({'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
     data = serializer.validated_data
+    logger.info(f"[generate_carousel] Params: {data}")
     content_type = data['content_type']
     description = data['description']
     slides = data['slides']
     inspiration = data.get('inspiration', '')
-
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        processed_inspiration = loop.run_until_complete(process_inspiration(inspiration))
-        loop.close()
-
-        # Build user prompt
+        processed_inspiration = process_inspiration(inspiration)
+        logger.info(f"[generate_carousel] Inspiration processed: {processed_inspiration}")
         user_prompt = f"""
         Generate Instagram carousel content with the following specifications:
-
         **Content Type:** {content_type}
         **Description:** {description}
         **Number of Slides:** {slides}
         """
         if processed_inspiration:
             user_prompt += f"\n{processed_inspiration}"
-
         user_prompt += f"""
-
         Please generate exactly {slides} slides of content. Return ONLY the slide contents without any numbering or "Slide X" prefixes.
         Each slide's content should be separated by two newlines.
         """
-
+        logger.info(f"[generate_carousel] Sending prompt to OpenAI: {user_prompt}")
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
             ],
             max_tokens=1500,
-            temperature=0.7
+            temperature=0.7,
         )
-
         content = response.choices[0].message.content.strip()
-
-        # Split into slides based on double newlines
+        logger.info(f"[generate_carousel] OpenAI response: {content}")
         slide_contents = [slide.strip() for slide in content.split('\n\n') if slide.strip()]
-
-
-
-        # Join all slides with double newlines for the final output
         final_string = "\n\n".join(slide_contents)
-
-        return Response({
+        logger.info(f"[generate_carousel] Carousel content generated successfully. Response: {final_string}")
+        response_data = {
             'success': True,
             'carousel_content': {
                 'content_type': content_type,
@@ -226,37 +244,113 @@ def generate_carousel(request):
                 'inspiration': inspiration,
                 'slide_contents': final_string
             }
-        }, status=status.HTTP_200_OK)
-
+        }
+        logger.info(f"[generate_carousel] Response: {response_data}")
+        return Response(response_data, status=status.HTTP_200_OK)
     except AuthenticationError:
+        logger.error("[generate_carousel] OpenAI API key is invalid or missing.")
         return Response({'error': 'OpenAI API key is invalid or missing'}, status=status.HTTP_401_UNAUTHORIZED)
-
     except RateLimitError:
+        logger.error("[generate_carousel] OpenAI API rate limit exceeded.")
         return Response({'error': 'OpenAI API rate limit exceeded. Please try again later.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
     except OpenAIError as e:
+        logger.error(f"[generate_carousel] OpenAI API error: {str(e)}")
         return Response({'error': f'OpenAI API error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
     except Exception as e:
+        logger.error(f"[generate_carousel] Unexpected error: {str(e)}")
         return Response({'error': f'Unexpected error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    logger.info(f"[generate_carousel] Response sent for user: {request.user.username}")
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_user_profile(request):
+    """Return the profile of the authenticated Instagram user."""
+    logger.info(f"[get_user_profile] GET request by user: {request.user.username}")
     auth_username = request.user.username
-    print(auth_username)
     user = get_object_or_404(Instagram_User, username=auth_username)
     serializer = InstagramUserSerializer(user)
+    logger.info(f"[get_user_profile] Profile data returned for user: {auth_username}. Response: {serializer.data}")
     return Response(serializer.data)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_user_posts(request):
+    """Return the top posts for the authenticated Instagram user."""
+    logger.info(f"[get_user_posts] GET request by user: {request.user.username}")
     auth_username = request.user.username
     user = get_object_or_404(Instagram_User, username=auth_username)
     posts = InstagramPost.objects.filter(user=user).order_by('-likes')[:3]
     serializer = InstagramPostSerializer(posts, many=True)
+    logger.info(f"[get_user_posts] Top posts returned for user: {auth_username}. Response: {serializer.data}")
     return Response(serializer.data)
 
 def encrypt_password(plain_text):
+    """Encrypt the given plain text password."""
+    logger.debug("[encrypt_password] Encrypting password.")
     return fernet.encrypt(plain_text.encode()).decode()
+
+class CarouselGeneratorView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.conversation_service = ConversationService()
+        logger.info("[CarouselGeneratorView] Initialized.")
+
+    def post(self, request):
+        """Generate carousel content using the conversation service."""
+        logger.info(f"[CarouselGeneratorView] POST request received. User: {request.user.username}, Data: {request.data}")
+        try:
+            data = request.data
+            logger.info(f"[CarouselGeneratorView] Params: {data}")
+            description = data.get('description')
+            content_type = data.get('content_type')
+            logger.info(f"[CarouselGeneratorView] Parameters - description: {description}, content_type: {content_type}")
+            if not description or not content_type:
+                logger.warning("[CarouselGeneratorView] Missing required fields.")
+                return Response({
+                    "error": "Both 'description' and 'content_type' are required"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            valid_content_types = ['Humble', 'Origin', 'Product']
+            if content_type not in valid_content_types:
+                logger.warning(f"[CarouselGeneratorView] Invalid content_type: {content_type}")
+                return Response({
+                    "error": f"Invalid content_type. Must be one of: {valid_content_types}"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            slides = data.get('slides', 5)
+            inspiration = data.get('inspiration')
+            thread_id = data.get('thread_id')
+            logger.info(f"[CarouselGeneratorView] slides: {slides}, inspiration: {inspiration}, thread_id: {thread_id}")
+            if not isinstance(slides, int) or slides < 1 or slides > 10:
+                logger.warning(f"[CarouselGeneratorView] Invalid slides count: {slides}")
+                return Response({
+                    "error": "Slides must be an integer between 1 and 10"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            logger.info("[CarouselGeneratorView] Processing inspiration content.")
+            result = self.conversation_service.generate_carousel(
+                description=description,
+                content_type=content_type,
+                slides=slides,
+                inspiration=inspiration,
+                thread_id=thread_id
+            )
+            logger.info(f"[CarouselGeneratorView] Carousel generated. Thread ID: {result['thread_id']}, Model used: {result['model_used']}, Inspiration processed: {result['inspiration_processed']}")
+            response_data = {
+                "success": True,
+                "thread_id": result['thread_id'],
+                "content_type": content_type,
+                "slides_count": slides,
+                "description": description,
+                "carousel_content": result['carousel_content'],
+                "model_used": result['model_used'],
+                "inspiration_processed": bool(result.get('inspiration_processed', False))
+            }
+            logger.info(f"[CarouselGeneratorView] Response: {response_data}")
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"[CarouselGeneratorView] Error in carousel generation: {str(e)}", exc_info=True)
+            return Response({
+                "error": "An unexpected error occurred",
+                "message": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.info(f"[CarouselGeneratorView] POST request completed for user: {request.user.username}")

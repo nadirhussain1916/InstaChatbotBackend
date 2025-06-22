@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-
+import uuid
 from django.db import models
 
 class Instagram_User(models.Model):
@@ -36,3 +36,25 @@ class InstagramPost(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.shortcode or self.post_url}"
+
+class ConversationThread(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-updated_at']
+
+class Message(models.Model):
+    MESSAGE_TYPES = [
+        ('user', 'User'),
+        ('assistant', 'Assistant'),
+    ]
+    
+    thread = models.ForeignKey(ConversationThread, on_delete=models.CASCADE, related_name='messages')
+    message_type = models.CharField(max_length=10, choices=MESSAGE_TYPES)
+    content = models.JSONField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
