@@ -10,6 +10,7 @@ import json
 from django.conf import settings
 from .models import ConversationThread, Message
 from django.db import connection
+import instaloader
 
 logger = logging.getLogger(__name__)
 
@@ -27,54 +28,48 @@ class InstagramScraper:
         except Exception as db_exc:
             logger.error(f"[InstagramScraper] Database connection error: {db_exc}")
 
-    def is_valid_instagram_url(self, url):
-        """Validate Instagram URL format."""
-        logger.debug(f"[InstagramScraper] Validating Instagram URL: {url}")
-        instagram_pattern = r'https?://(www\.)?(instagram\.com|instagr\.am)/p/[A-Za-z0-9_-]+/?'
-        return bool(re.match(instagram_pattern, url))
+    def is_valid_instagram_url(self, url: str) -> bool:
+        pattern = r'^https?://(www\.)?instagram\.com/p/[A-Za-z0-9_\-]+/?(\?.*)?$'
+        return re.match(pattern, url) is not None
 
-    def scrape_instagram_post(self, url):
-        """Scrape Instagram post for caption and images."""
+    def extract_shortcode(self, url: str) -> str:
+        """Extract the shortcode from the Instagram post URL."""
+        match = re.search(r'/p/([A-Za-z0-9_\-]+)/?', url)
+        if match:
+            return match.group(1)
+        raise ValueError("Could not extract shortcode from URL")
+
+    def scrape_instagram_post(self, url: str):
+        """Scrape Instagram post using Instaloader for caption and image URLs."""
         logger.info(f"[InstagramScraper] Scraping Instagram post: {url}")
-        try:
-            connection.ensure_connection()
-            logger.info("[InstagramScraper] Database connection OK.")
-        except Exception as db_exc:
-            logger.error(f"[InstagramScraper] Database connection error: {db_exc}")
         try:
             if not self.is_valid_instagram_url(url):
                 logger.warning(f"[InstagramScraper] Invalid Instagram URL: {url}")
                 raise ValueError("Invalid Instagram URL format")
-            if not url.endswith('/'):
-                logger.debug(f"[InstagramScraper] Appending '/' to URL: {url}")
-                url += '/'
-            embed_url = url + 'embed/'
-            logger.debug(f"[InstagramScraper] Embed URL: {embed_url}")
-            response = self.session.get(embed_url, timeout=10)
-            logger.info(f"[InstagramScraper] HTTP status: {response.status_code}, body: {response.text}")
-            response.raise_for_status()
-            logger.info(f"[InstagramScraper] Fetched embed page for: {url}")
-            soup = BeautifulSoup(response.content, 'html.parser')
-            caption = ""
-            caption_elements = soup.find_all(['p', 'div'], class_=re.compile(r'caption|text', re.I))
-            for element in caption_elements:
-                logger.debug(f"[InstagramScraper] Found caption element: {element}")
-                text = element.get_text(strip=True)
-                if len(text) > len(caption):
-                    caption = text
+
+            shortcode = self.extract_shortcode(url)
+            logger.debug(f"[InstagramScraper] Extracted shortcode: {shortcode}")
+
+            loader = instaloader.Instaloader()
+            post = instaloader.Post.from_shortcode(loader.context, shortcode)
+
+            caption = post.caption or ""
             image_urls = []
-            img_tags = soup.find_all('img')
-            logger.debug(f"[InstagramScraper] Found {len(img_tags)} image tags.")
-            for img in img_tags:
-                src = img.get('src')
-                if src and ('instagram' in src or 'cdninstagram' in src):
-                    image_urls.append(src)
-            image_urls = list(dict.fromkeys(image_urls))
-            logger.info(f"[InstagramScraper] Scraped caption: {caption}, image_urls: {image_urls}")
+
+            if post.typename == "GraphSidecar":
+                for node in post.get_sidecar_nodes():
+                    image_urls.append(node.display_url)
+            else:
+                image_urls.append(post.url)
+
+            logger.info(f"[InstagramScraper] Scraped caption: {caption}")
+            logger.info(f"[InstagramScraper] Scraped image URLs: {image_urls}")
+
             return {
                 'caption': caption,
                 'image_urls': image_urls[:10]
             }
+
         except Exception as e:
             logger.error(f"[InstagramScraper] Error scraping post: {e}")
             raise
@@ -244,6 +239,11 @@ class ConversationService:
             logger.info(f"[ConversationService] Inspiration is an Instagram URL: {inspiration}")
             try:
                 scraped_data = self.scraper.scrape_instagram_post(inspiration)
+                print('--------------------------------------------------------------------------------')
+                print('')
+                print('scraped_data : ',scraped_data)
+                print('')
+                print('--------------------------------------------------------------------------------')
                 logger.info(f"[ConversationService] Scraped data: {scraped_data}")
                 text_parts = []
                 if scraped_data['caption']:
@@ -276,6 +276,12 @@ class ConversationService:
             logger.error(f"[ConversationService] Database connection error: {db_exc}")
         thread = self.create_or_get_thread(thread_id)
         inspiration_text = self.process_inspiration(inspiration)
+        print('--------------------------------------------------------------------------------')
+        print('')
+        print('inspiration_text : ',inspiration_text)
+        print('')
+        print('--------------------------------------------------------------------------------')
+
         user_content = {
             'description': description,
             'content_type': content_type,
