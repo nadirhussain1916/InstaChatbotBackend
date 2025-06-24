@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CustomSignInView,InstagramFetchData,generate_carousel,get_user_profile,get_user_posts,CarouselGeneratorView
+from .views import CustomSignInView,InstagramFetchData,get_user_profile,get_user_posts,CarouselGeneratorView
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,

@@ -36,13 +36,6 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 SYSTEM_PROMPT = "You are a helpful assistant that creates engaging Instagram carousel content."
 
-def process_inspiration(inspiration):
-    """Dummy sync function for inspiration processing. Replace with actual logic if needed."""
-    logger.info(f"[process_inspiration] Called with inspiration: {inspiration}")
-    if inspiration:
-        return f"Inspired by: {inspiration}"
-    return ""
-
 logger.info('[Startup] API and view modules loaded. Logging initialized.')
 
 class CustomSignInView(APIView):
@@ -188,79 +181,6 @@ class InstagramFetchData(APIView):
             )
         logger.info(f"[InstagramFetchData] POST request completed for user: {request.user.username}")
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def generate_carousel(request):
-    """Generate Instagram carousel content using OpenAI."""
-    logger.info(f"[generate_carousel] POST request received. User: {request.user.username}, Data: {request.data}")
-    serializer = CarouselGeneratorSerializer(data=request.data)
-    logger.info(f"[generate_carousel] Serializer valid: {serializer.is_valid()}")
-    if not serializer.is_valid():
-        logger.warning(f"[generate_carousel] Invalid data: {serializer.errors}")
-        return Response({'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-    data = serializer.validated_data
-    logger.info(f"[generate_carousel] Params: {data}")
-    content_type = data['content_type']
-    description = data['description']
-    slides = data['slides']
-    inspiration = data.get('inspiration', '')
-    try:
-        processed_inspiration = process_inspiration(inspiration)
-        logger.info(f"[generate_carousel] Inspiration processed: {processed_inspiration}")
-        user_prompt = f"""
-        Generate Instagram carousel content with the following specifications:
-        **Content Type:** {content_type}
-        **Description:** {description}
-        **Number of Slides:** {slides}
-        """
-        if processed_inspiration:
-            user_prompt += f"\n{processed_inspiration}"
-        user_prompt += f"""
-        Please generate exactly {slides} slides of content. Return ONLY the slide contents without any numbering or "Slide X" prefixes.
-        Each slide's content should be separated by two newlines.
-        """
-        logger.info(f"[generate_carousel] Sending prompt to OpenAI: {user_prompt}")
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=1500,
-            temperature=0.7,
-        )
-        content = response.choices[0].message.content.strip()
-        logger.info(f"[generate_carousel] OpenAI response: {content}")
-        slide_contents = [slide.strip() for slide in content.split('\n\n') if slide.strip()]
-        final_string = "\n\n".join(slide_contents)
-        logger.info(f"[generate_carousel] Carousel content generated successfully. Response: {final_string}")
-        response_data = {
-            'success': True,
-            'carousel_content': {
-                'content_type': content_type,
-                'description': description,
-                'slides': slides,
-                'inspiration': inspiration,
-                'slide_contents': final_string
-            }
-        }
-        logger.info(f"[generate_carousel] Response: {response_data}")
-        return Response(response_data, status=status.HTTP_200_OK)
-    except AuthenticationError:
-        logger.error("[generate_carousel] OpenAI API key is invalid or missing.")
-        return Response({'error': 'OpenAI API key is invalid or missing'}, status=status.HTTP_401_UNAUTHORIZED)
-    except RateLimitError:
-        logger.error("[generate_carousel] OpenAI API rate limit exceeded.")
-        return Response({'error': 'OpenAI API rate limit exceeded. Please try again later.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-    except OpenAIError as e:
-        logger.error(f"[generate_carousel] OpenAI API error: {str(e)}")
-        return Response({'error': f'OpenAI API error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    except Exception as e:
-        logger.error(f"[generate_carousel] Unexpected error: {str(e)}")
-        return Response({'error': f'Unexpected error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    logger.info(f"[generate_carousel] Response sent for user: {request.user.username}")
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_user_profile(request):
@@ -302,31 +222,47 @@ class CarouselGeneratorView(APIView):
         logger.info(f"[CarouselGeneratorView] POST request received. User: {request.user.username}, Data: {request.data}")
         try:
             data = request.data
-            logger.info(f"[CarouselGeneratorView] Params: {data}")
+            logger.info(f"[CarouselGeneratorView] Extracting parameters from request data: {data}")
+            
             description = data.get('description')
             content_type = data.get('content_type')
             logger.info(f"[CarouselGeneratorView] Parameters - description: {description}, content_type: {content_type}")
+            
             if not description or not content_type:
                 logger.warning("[CarouselGeneratorView] Missing required fields.")
                 return Response({
                     "error": "Both 'description' and 'content_type' are required"
                 }, status=status.HTTP_400_BAD_REQUEST)
+            
             valid_content_types = ['Humble', 'Origin', 'Product']
             if content_type not in valid_content_types:
                 logger.warning(f"[CarouselGeneratorView] Invalid content_type: {content_type}")
                 return Response({
                     "error": f"Invalid content_type. Must be one of: {valid_content_types}"
                 }, status=status.HTTP_400_BAD_REQUEST)
+            
             slides = data.get('slides', 5)
             inspiration = data.get('inspiration')
             thread_id = data.get('thread_id')
-            logger.info(f"[CarouselGeneratorView] slides: {slides}, inspiration: {inspiration}, thread_id: {thread_id}")
+            logger.info(f"[CarouselGeneratorView] Additional parameters - slides: {slides}, inspiration: {inspiration}, thread_id: {thread_id}")
+            
             if not isinstance(slides, int) or slides < 1 or slides > 10:
                 logger.warning(f"[CarouselGeneratorView] Invalid slides count: {slides}")
                 return Response({
                     "error": "Slides must be an integer between 1 and 10"
                 }, status=status.HTTP_400_BAD_REQUEST)
-            logger.info("[CarouselGeneratorView] Processing inspiration content.")
+            
+            # Log inspiration processing start
+            if inspiration:
+                logger.info(f"[CarouselGeneratorView] Processing inspiration content: {inspiration}")
+                if self.conversation_service.scraper.is_valid_instagram_url(inspiration):
+                    logger.info(f"[CarouselGeneratorView] Instagram URL detected in inspiration: {inspiration}")
+                else:
+                    logger.info(f"[CarouselGeneratorView] Text/Email content detected in inspiration")
+            else:
+                logger.info("[CarouselGeneratorView] No inspiration content provided")
+            
+            logger.info("[CarouselGeneratorView] Calling conversation service to generate carousel...")
             result = self.conversation_service.generate_carousel(
                 description=description,
                 content_type=content_type,
@@ -334,7 +270,10 @@ class CarouselGeneratorView(APIView):
                 inspiration=inspiration,
                 thread_id=thread_id
             )
-            logger.info(f"[CarouselGeneratorView] Carousel generated. Thread ID: {result['thread_id']}, Model used: {result['model_used']}, Inspiration processed: {result['inspiration_processed']}")
+            
+            logger.info(f"[CarouselGeneratorView] Carousel generated successfully.")
+            logger.info(f"[CarouselGeneratorView] Result details - Thread ID: {result['thread_id']}, Model used: {result['model_used']}, Inspiration processed: {result['inspiration_processed']}")
+            
             response_data = {
                 "success": True,
                 "thread_id": result['thread_id'],
@@ -345,12 +284,15 @@ class CarouselGeneratorView(APIView):
                 "model_used": result['model_used'],
                 "inspiration_processed": bool(result.get('inspiration_processed', False))
             }
-            logger.info(f"[CarouselGeneratorView] Response: {response_data}")
+            
+            logger.info(f"[CarouselGeneratorView] Sending successful response with carousel content")
             return Response(response_data, status=status.HTTP_200_OK)
+            
         except Exception as e:
             logger.error(f"[CarouselGeneratorView] Error in carousel generation: {str(e)}", exc_info=True)
             return Response({
                 "error": "An unexpected error occurred",
                 "message": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
         logger.info(f"[CarouselGeneratorView] POST request completed for user: {request.user.username}")
