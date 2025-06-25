@@ -72,3 +72,21 @@ class UserAnswer(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.question.id}"
+    
+class ChatThread(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="chat_threads")
+    thread_id = models.CharField(max_length=100, unique=True, default=uuid.uuid4)  # ✅ New field
+    title = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Chat {self.id} - {self.user.username}"
+
+class ChatMessage(models.Model):
+    thread = models.ForeignKey(ChatThread, on_delete=models.CASCADE, related_name="messages")
+    sender = models.CharField(max_length=10, choices=[("user", "User"), ("ai", "AI")])
+    message = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.sender.upper()} - {self.message[:30]}"

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Instagram_User,InstagramPost, Question, UserAnswer
+from .models import Instagram_User,InstagramPost, Question, UserAnswer,ChatThread, ChatMessage
 
         
 class CarouselGeneratorSerializer(serializers.Serializer):
@@ -28,3 +28,44 @@ class UserAnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserAnswer
         fields = ['question', 'answer']
+
+
+class ChatMsgSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatMessage
+        fields = ['sender', 'message']
+
+class ChatThreadSerializer(serializers.ModelSerializer):
+    messages = serializers.SerializerMethodField()  # ✅ This must be used
+
+    class Meta:
+        model = ChatThread
+        fields = ['thread_id', 'created_at', 'messages']
+
+    def get_messages(self, obj):
+        # Return only the first user message
+        first_user_msg = obj.messages.filter(sender='user').order_by('timestamp').first()
+        if first_user_msg:
+            return ChatMsgSerializer(first_user_msg).data
+        return None
+    
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'sender', 'message', 'timestamp']
+
+class ChatSerializer(serializers.ModelSerializer):
+    messages = serializers.SerializerMethodField()  # ✅ Use custom logic here
+
+    class Meta:
+        model = ChatThread
+        fields = ['thread_id', 'created_at', 'messages']
+
+    def get_messages(self, obj):
+        # ✅ Return messages ordered by ID (ascending)
+        ordered_messages = obj.messages.order_by('id')
+        return ChatMessageSerializer(ordered_messages, many=True).data
+    
+
+

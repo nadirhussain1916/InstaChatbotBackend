@@ -6,10 +6,12 @@ from django.contrib.auth import authenticate
 from rest_framework.decorators import api_view, permission_classes
 import threading
 import os
+import uuid
+
 import re
 from rest_framework_simplejwt.tokens import RefreshToken
-from instaapp.models import Instagram_User, InstagramPost,Question, UserAnswer
-from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,QuestionSerializer, UserAnswerSerializer
+from instaapp.models import Instagram_User, InstagramPost,Question, UserAnswer,ChatThread, ChatMessage
+from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,QuestionSerializer, UserAnswerSerializer,ChatThreadSerializer,ChatSerializer
 from instaapp.helper import save_user_profile, fetch_user_instagram_profile_data, check_instagram_credentials, get_and_save_post_detail
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
@@ -228,6 +230,12 @@ class CarouselGeneratorView(APIView):
             logger.info(f"[CarouselGeneratorView] Extracting parameters from request data: {data}")
             
             description = data.get('description')
+            message_id = data.get('message_id')
+            if not message_id:
+                 return Response({
+                    "error": "message_id is required"
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
             content_type = data.get('content_type')
             logger.info(f"[CarouselGeneratorView] Parameters - description: {description}, content_type: {content_type}")
             
@@ -272,6 +280,24 @@ class CarouselGeneratorView(APIView):
                 slides=slides,
                 inspiration=inspiration,
                 thread_id=thread_id
+            )
+            thread_id = result.get('thread_id')
+            thread, _ = ChatThread.objects.get_or_create(
+                    user=request.user,
+                    thread_id=message_id  # Only use your custom thread_id field
+                )
+
+            # Save user prompt
+            ChatMessage.objects.create(
+                thread=thread,
+                sender="user",
+                message=description
+            )
+            
+            ChatMessage.objects.create(
+                thread=thread,
+                sender="ai",
+                message="\n".join(result['carousel_content']['slides'].values())  # or json.dumps(...)
             )
             
             logger.info(f"[CarouselGeneratorView] Carousel generated successfully.")
@@ -321,3 +347,29 @@ class SubmitAnswersView(APIView):
                 defaults={'answer': item['answer']}
             )
         return Response({"message": "Answers submitted successfully"})
+
+class UserChatListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Return all chat threads for the user"""
+        threads = ChatThread.objects.filter(user=request.user).order_by('-created_at')
+        serializer = ChatThreadSerializer(threads, many=True)
+        return Response(serializer.data)
+
+class ChatDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, thread_id):
+        """Return a single thread with messages"""
+        thread = get_object_or_404(ChatThread, thread_id=thread_id, user=request.user)
+        serializer = ChatSerializer(thread)
+        return Response(serializer.data)
+
+class ChatThreadCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Return a new unique thread_id without creating it in DB"""
+        thread_id = str(uuid.uuid4())
+        return Response({'new_chat_id': thread_id}, status=status.HTTP_200_OK)
