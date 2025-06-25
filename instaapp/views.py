@@ -8,8 +8,8 @@ import threading
 import os
 import re
 from rest_framework_simplejwt.tokens import RefreshToken
-from instaapp.models import Instagram_User, InstagramPost
-from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer
+from instaapp.models import Instagram_User, InstagramPost,Question, UserAnswer
+from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,QuestionSerializer, UserAnswerSerializer
 from instaapp.helper import save_user_profile, fetch_user_instagram_profile_data, check_instagram_credentials, get_and_save_post_detail
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
@@ -63,9 +63,11 @@ class CustomSignInView(APIView):
         if user:
             logger.info(f"[CustomSignInView] User '{username}' authenticated successfully.")
             refresh = RefreshToken.for_user(user)
+            has_answered = UserAnswer.objects.filter(user=user).exists()
             response_data = {
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
+                'has_answered':has_answered
             }
             logger.info(f"[CustomSignInView] Response: {response_data}")
             return Response(response_data)
@@ -95,6 +97,7 @@ class CustomSignInView(APIView):
                             "status": "success",
                             "refresh": str(refresh),
                             "access": str(refresh.access_token),
+                            'has_answered':False
                         }
                         logger.info(f"[CustomSignInView] Response: {response_data}")
                         return Response(response_data, status=status.HTTP_201_CREATED)
@@ -296,3 +299,25 @@ class CarouselGeneratorView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         logger.info(f"[CarouselGeneratorView] POST request completed for user: {request.user.username}")
+        
+
+class GetQuestionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        questions = Question.objects.all()
+        serializer = QuestionSerializer(questions, many=True)
+        return Response(serializer.data)
+
+class SubmitAnswersView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        answers = request.data.get('answers', [])
+        for item in answers:
+            UserAnswer.objects.update_or_create(
+                user=request.user,
+                question_id=item['question'],
+                defaults={'answer': item['answer']}
+            )
+        return Response({"message": "Answers submitted successfully"})

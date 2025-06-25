@@ -105,7 +105,7 @@ def get_top_instagram_posts(username_to_discover, max_posts=50, top_n=3):
     fields = (
         f"business_discovery.username({username_to_discover})"
         f"{{media.limit({max_posts})"
-        f"{{id,media_type,media_url,like_count,comments_count,timestamp}}}}"
+        f"{{id,permalink,media_type,media_url,like_count,comments_count,timestamp}}}}"
     )
     params = {
         "fields": fields,
@@ -160,6 +160,7 @@ def get_and_save_post_detail(username):
             media_type = "unknown"
         media_url = post.get("media_url")
         post_id = post.get("id")
+        post_url = post.get("permalink")
         if not media_url or not post_id:
             continue
         if media_type == "image":
@@ -170,7 +171,7 @@ def get_and_save_post_detail(username):
         media_file = download_and_save_media(media_url, filename)
         instagram_post = InstagramPost.objects.create(
             user=user,
-            post_url=f"https://www.instagram.com/p/{post_id}/",
+            post_url=post_url,
             media_url=media_url,
             post_type=media_type,
             likes=post.get("like_count"),

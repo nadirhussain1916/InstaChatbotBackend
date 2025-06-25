@@ -76,23 +76,23 @@ REST_FRAMEWORK = {
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
-
 # DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.mysql',
-#         'NAME': 'instagram',           # 👈 Your database name
-#         'USER': 'root',        # 👈 Your MySQL username
-#         'PASSWORD': '',# 👈 Your MySQL password
-#         'HOST': 'localhost',              # 👈 Or your DB host, e.g. '127.0.0.1'
-#         'PORT': '3306',                   # 👈 Default MySQL port
+#     "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "db.sqlite3",
 #     }
 # }
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'instagram',  
+        'USER': 'root',       
+        'PASSWORD': '',
+        'HOST': 'localhost',     
+        'PORT': '3306',  
+    }
+}
 
 
 

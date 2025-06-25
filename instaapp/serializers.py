@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from .models import Instagram_User,InstagramPost
-  
+from .models import Instagram_User,InstagramPost, Question, UserAnswer
+
         
 class CarouselGeneratorSerializer(serializers.Serializer):
     content_type = serializers.ChoiceField(choices=['Humble', 'Origin', 'Product'],required=False,default='Humble')
@@ -17,3 +17,14 @@ class InstagramPostSerializer(serializers.ModelSerializer):
     class Meta:
         model = InstagramPost
         fields = ['id', 'post_url', 'caption', 'media_url', 'thumbnail_url', 'post_type', 'likes', 'comments', 'timestamp', 'shortcode']
+        
+
+class QuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        fields = ['id', 'text']
+
+class UserAnswerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserAnswer
+        fields = ['question', 'answer']
