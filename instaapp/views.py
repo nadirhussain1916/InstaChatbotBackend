@@ -232,9 +232,7 @@ class CarouselGeneratorView(APIView):
             description = data.get('description')
             message_id = data.get('message_id')
             if not message_id:
-                 return Response({
-                    "error": "message_id is required"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                message_id = str(uuid.uuid4())
                 
             content_type = data.get('content_type')
             logger.info(f"[CarouselGeneratorView] Parameters - description: {description}, content_type: {content_type}")
@@ -244,7 +242,7 @@ class CarouselGeneratorView(APIView):
                 return Response({
                     "error": "Both 'description' and 'content_type' are required"
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
+            acutal_description = description
             valid_content_types = ['Humble', 'Origin', 'Product']
             if content_type not in valid_content_types:
                 logger.warning(f"[CarouselGeneratorView] Invalid content_type: {content_type}")
@@ -262,6 +260,37 @@ class CarouselGeneratorView(APIView):
                 return Response({
                     "error": "Slides must be an integer between 1 and 10"
                 }, status=status.HTTP_400_BAD_REQUEST)
+            
+             # ✅ Check if user has any previous threads
+            has_previous_threads = ChatThread.objects.filter(user=request.user).exists()
+            summary = None
+            
+            if not has_previous_threads:
+                logger.info("[CarouselGeneratorView] First conversation detected. Building user profile summary...")
+
+                user_answers = UserAnswer.objects.filter(user=request.user).select_related('question')
+                
+                if user_answers.exists():
+                    summary_lines = [
+                        f"- {answer.question.text.strip()}: {answer.answer.strip()}"
+                        for answer in user_answers
+                    ]
+                    summary_text = "\n".join(summary_lines)
+                    
+                    logger.info(f"[CarouselGeneratorView] Onboarding summary:\n{summary_text}")
+                    
+                    # 🧠 Clarify that onboarding is *background only* and question is what needs the answer
+                    description = (
+                        "You are an assistant helping users by answering their questions clearly. "
+                        "Below is some background context about the user. You may use this to guide tone or relevance, "
+                        "but you should NOT mention or refer to the background directly. "
+                        "Just focus on answering the user's actual question accurately and clearly.\n\n"
+                        "### USER BACKGROUND (FOR CONTEXT ONLY, DO NOT MENTION) ###\n"
+                        f"{summary_text}\n\n"
+                        "### USER QUESTION ###\n"
+                        f"{description}"
+                    )
+
             
             # Log inspiration processing start
             if inspiration:
@@ -308,10 +337,11 @@ class CarouselGeneratorView(APIView):
                 "thread_id": result['thread_id'],
                 "content_type": content_type,
                 "slides_count": slides,
-                "description": description,
+                "description": acutal_description,
                 "carousel_content": result['carousel_content'],
                 "model_used": result['model_used'],
-                "inspiration_processed": bool(result.get('inspiration_processed', False))
+                "inspiration_processed": bool(result.get('inspiration_processed', False)),
+                "message_id":message_id
             }
             
             logger.info(f"[CarouselGeneratorView] Sending successful response with carousel content")
