@@ -178,7 +178,7 @@ class ContentGenerator:
                     })
                 elif msg.message_type == 'assistant':
                     slides = msg.content.get('carousel_content', {}).get('slides', {})
-                    slides_text = "\n".join([f"Slide {k}: {v}" for k, v in slides.items()])
+                    slides_text = slides
                     context.append({
                         "role": "assistant",
                         "content": slides_text
@@ -238,26 +238,13 @@ Format your response as clear, structured insights that can be used to inspire n
             logger.info("[ContentGenerator] Falling back to original inspiration text")
             return inspiration_text
 
-    def generate_carousel_content(self, content_type, description, slides, inspiration_text=None, thread_id=None):
+    def generate_carousel_content(self, description,thread_id=None):
         """Generate carousel content using fine-tuned OpenAI model with context."""
         logger.info(f"[ContentGenerator] Starting carousel generation")
-        logger.info(f"[ContentGenerator] Parameters - content_type: {content_type}, slides: {slides}, thread_id: {thread_id}")
+        logger.info(f"[ContentGenerator] Parameters - content_type: thread_id: {thread_id}")
         logger.info(f"[ContentGenerator] Description: {description}")
         
-        # Process inspiration text with OpenAI if provided
-        processed_inspiration = None
-        if inspiration_text:
-            logger.info("[ContentGenerator] Processing inspiration text with OpenAI...")
-            processed_inspiration = self.process_inspiration_with_openai(inspiration_text)
-        
-        user_prompt = f"""Create a {slides}-slide Instagram carousel with the following requirements:\n\nContent Type: {content_type}\nDescription: {description}\nNumber of Slides: {slides}"""
-        
-        if processed_inspiration:
-            logger.info("[ContentGenerator] Adding processed inspiration to prompt")
-            user_prompt += f"\n\nInspiration Content Analysis: {processed_inspiration}\n\nPlease use the inspiration analysis to enhance and inform your carousel creation, but focus primarily on the main description."
-        
-        user_prompt += f"\n\nPlease generate exactly {slides} slides following the structure:\n- Slide 1: Attention-grabbing hook\n- Slides 2-{slides-1}: Main content/story\n- Slide {slides}: Call to action\n\nReturn the response as a JSON object with this structure:\n{{\n  \"slides\": {{\n    \"1\": \"First slide content here...\",\n    \"2\": \"Second slide content here...\",\n    ...\n    \"{slides}\": \"Last slide content here...\"\n  }}\n}}"
-        
+
         try:
             messages = []
             
@@ -265,10 +252,19 @@ Format your response as clear, structured insights that can be used to inspire n
             if thread_id:
                 logger.info(f"[ContentGenerator] Adding conversation context for thread: {thread_id}")
                 context = self.get_conversation_context(thread_id)
-                messages.extend(context)
+                clean_context = []
+                for msg in context:
+                    content = msg.get('content', '')
+                    if isinstance(content, list):
+                        content = "\n".join(content)
+                    clean_context.append({
+                        "role": msg.get("role"),
+                        "content": content
+                    })
+                messages.extend(clean_context)
                 logger.info(f"[ContentGenerator] Added {len(context)} context messages")
             
-            messages.append({"role": "user", "content": user_prompt})
+            messages.append({"role": "user", "content": description})
             
             logger.info(f"[ContentGenerator] Sending request to OpenAI with {len(messages)} messages")
             logger.info(f"[ContentGenerator] Using model: {self.model}")
@@ -307,21 +303,10 @@ Format your response as clear, structured insights that can be used to inspire n
                 logger.info("[ContentGenerator] Attempting to create fallback slides structure")
                 
                 # Fallback: create basic slides structure
-                slides_dict = {}
                 content_lines = content.split('\n')
-                slide_count = 1
                 
-                for line in content_lines:
-                    if line.strip() and slide_count <= slides:
-                        slides_dict[str(slide_count)] = line.strip()
-                        slide_count += 1
                 
-                # Fill remaining slides if needed
-                while slide_count <= slides:
-                    slides_dict[str(slide_count)] = f"Slide {slide_count} content"
-                    slide_count += 1
-                
-                fallback_content = {"slides": slides_dict}
+                fallback_content = {"slides": content_lines}
                 logger.info(f"[ContentGenerator] Created fallback content with {len(fallback_content['slides'])} slides")
                 return fallback_content
                 
@@ -431,32 +416,18 @@ class ConversationService:
             logger.info("[ConversationService] Falling back to original inspiration text")
             return inspiration.strip() if inspiration else None
 
-    def generate_carousel(self, description, content_type, slides=5, inspiration=None, thread_id=None):
+    def generate_carousel(self, description, thread_id=None):
         """Generate carousel content with optional inspiration and conversation context."""
         logger.info("[ConversationService] Starting carousel generation process")
-        logger.info(f"[ConversationService] Parameters - content_type: {content_type}, slides: {slides}, thread_id: {thread_id}")
+        logger.info(f"[ConversationService] Parameters - content_type: thread_id: {thread_id}")
         
         try:
             # Get or create conversation thread
             thread = self.get_or_create_thread(thread_id)
-            
-            # Process inspiration if provided
-            inspiration_text = None
-            inspiration_processed = False
-            
-            if inspiration:
-                logger.info("[ConversationService] Processing inspiration content")
-                inspiration_text = self.process_inspiration(inspiration)
-                inspiration_processed = bool(inspiration_text)
-                logger.info(f"[ConversationService] Inspiration processed: {inspiration_processed}")
-            
+                       
             # Save user message
             user_message_content = {
                 'description': description,
-                'content_type': content_type,
-                'slides': slides,
-                'inspiration': inspiration,
-                'inspiration_processed': inspiration_processed
             }
             
             self.save_message(thread, 'user', user_message_content)
@@ -464,10 +435,7 @@ class ConversationService:
             # Generate carousel content
             logger.info("[ConversationService] Generating carousel content with ContentGenerator")
             carousel_content = self.content_generator.generate_carousel_content(
-                content_type=content_type,
                 description=description,
-                slides=slides,
-                inspiration_text=inspiration_text,
                 thread_id=thread.id
             )
             
@@ -475,7 +443,6 @@ class ConversationService:
             assistant_message_content = {
                 'carousel_content': carousel_content,
                 'model_used': self.content_generator.model,
-                'inspiration_processed': inspiration_processed
             }
             
             self.save_message(thread, 'assistant', assistant_message_content)
@@ -486,7 +453,6 @@ class ConversationService:
                 'thread_id': thread.id,
                 'carousel_content': carousel_content,
                 'model_used': self.content_generator.model,
-                'inspiration_processed': inspiration_processed
             }
             
         except Exception as e:

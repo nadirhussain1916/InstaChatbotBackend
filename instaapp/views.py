@@ -230,41 +230,30 @@ class CarouselGeneratorView(APIView):
             logger.info(f"[CarouselGeneratorView] Extracting parameters from request data: {data}")
             
             description = data.get('description')
-            message_id = data.get('message_id')
-            if not message_id:
-                message_id = str(uuid.uuid4())
                 
-            content_type = data.get('content_type')
-            logger.info(f"[CarouselGeneratorView] Parameters - description: {description}, content_type: {content_type}")
+            logger.info(f"[CarouselGeneratorView] Parameters - description: {description}")
             
-            if not description or not content_type:
+            if not description:
                 logger.warning("[CarouselGeneratorView] Missing required fields.")
                 return Response({
-                    "error": "Both 'description' and 'content_type' are required"
+                    "error": "Both 'description' are required"
                 }, status=status.HTTP_400_BAD_REQUEST)
             acutal_description = description
-            valid_content_types = ['Humble', 'Origin', 'Product']
-            if content_type not in valid_content_types:
-                logger.warning(f"[CarouselGeneratorView] Invalid content_type: {content_type}")
-                return Response({
-                    "error": f"Invalid content_type. Must be one of: {valid_content_types}"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            slides = data.get('slides', 5)
-            inspiration = data.get('inspiration')
+           
+                    
+    
             thread_id = data.get('thread_id')
-            logger.info(f"[CarouselGeneratorView] Additional parameters - slides: {slides}, inspiration: {inspiration}, thread_id: {thread_id}")
+            logger.info(f"[CarouselGeneratorView] Additional parameters -  thread_id: {thread_id}")
             
-            if not isinstance(slides, int) or slides < 1 or slides > 10:
-                logger.warning(f"[CarouselGeneratorView] Invalid slides count: {slides}")
-                return Response({
-                    "error": "Slides must be an integer between 1 and 10"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+           
              # ✅ Check if user has any previous threads
-            has_previous_threads = ChatThread.objects.filter(user=request.user).exists()
-            summary = None
-            
+            has_previous_threads = False
+
+            if thread_id:
+                logger.info("[CarouselGeneratorView] Checking for existing thread by thread_id...")
+                has_previous_threads = ChatThread.objects.filter(user=request.user, thread_id=thread_id).exists()
+            else:
+                logger.info("[CarouselGeneratorView] No thread_id provided; setting has_previous_threads = False.")
             if not has_previous_threads:
                 logger.info("[CarouselGeneratorView] First conversation detected. Building user profile summary...")
 
@@ -293,27 +282,16 @@ class CarouselGeneratorView(APIView):
 
             
             # Log inspiration processing start
-            if inspiration:
-                logger.info(f"[CarouselGeneratorView] Processing inspiration content: {inspiration}")
-                if self.conversation_service.scraper.is_valid_instagram_url(inspiration):
-                    logger.info(f"[CarouselGeneratorView] Instagram URL detected in inspiration: {inspiration}")
-                else:
-                    logger.info(f"[CarouselGeneratorView] Text/Email content detected in inspiration")
-            else:
-                logger.info("[CarouselGeneratorView] No inspiration content provided")
-            
+           
             logger.info("[CarouselGeneratorView] Calling conversation service to generate carousel...")
             result = self.conversation_service.generate_carousel(
                 description=description,
-                content_type=content_type,
-                slides=slides,
-                inspiration=inspiration,
                 thread_id=thread_id
             )
             thread_id = result.get('thread_id')
             thread, _ = ChatThread.objects.get_or_create(
                     user=request.user,
-                    thread_id=message_id  # Only use your custom thread_id field
+                    thread_id=thread_id  # Only use your custom thread_id field
                 )
 
             # Save user prompt
@@ -326,22 +304,19 @@ class CarouselGeneratorView(APIView):
             ChatMessage.objects.create(
                 thread=thread,
                 sender="ai",
-                message="\n".join(result['carousel_content']['slides'].values())  # or json.dumps(...)
+                message="\n".join(result['carousel_content']['slides'])  # or json.dumps(...)
             )
             
             logger.info(f"[CarouselGeneratorView] Carousel generated successfully.")
-            logger.info(f"[CarouselGeneratorView] Result details - Thread ID: {result['thread_id']}, Model used: {result['model_used']}, Inspiration processed: {result['inspiration_processed']}")
-            
+            logger.info(f"[CarouselGeneratorView] Result details - Thread ID: {result['thread_id']}, Model used: {result['model_used']}")
+            carousel_content = result['carousel_content']['slides']
+            cleaned_content = [para.strip() for para in carousel_content if para.strip()]     
+            full_text = " ".join(cleaned_content)    
             response_data = {
                 "success": True,
-                "thread_id": result['thread_id'],
-                "content_type": content_type,
-                "slides_count": slides,
+                "thread_id": thread_id,
                 "description": acutal_description,
-                "carousel_content": result['carousel_content'],
-                "model_used": result['model_used'],
-                "inspiration_processed": bool(result.get('inspiration_processed', False)),
-                "message_id":message_id
+                "carousel_content": full_text,
             }
             
             logger.info(f"[CarouselGeneratorView] Sending successful response with carousel content")
