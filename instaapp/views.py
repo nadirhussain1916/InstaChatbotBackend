@@ -298,7 +298,7 @@ class CarouselGeneratorView(APIView):
             ChatMessage.objects.create(
                 thread=thread,
                 sender="user",
-                message=description
+                message=acutal_description
             )
             
             ChatMessage.objects.create(
