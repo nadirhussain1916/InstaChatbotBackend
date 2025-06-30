@@ -458,3 +458,331 @@ class ConversationService:
         except Exception as e:
             logger.error(f"[ConversationService] Error in carousel generation: {str(e)}", exc_info=True)
             raise
+        
+
+# In-memory thread store with conversation state
+threads = {}
+conversation_states = {}
+
+SYSTEM_PROMPT = """
+You are Daily Bread AI, a professional content creation assistant specializing in social media and email marketing. Your role is to help users create high-quality content and provide expert advice on content strategy.
+
+Core Guidelines:
+- Maintain a professional, knowledgeable tone without excessive friendliness
+- Provide clear, actionable guidance and suggestions
+- Generate well-structured, professional content
+- Handle modifications, improvements, and follow-up requests efficiently
+- Never use emojis or special characters in responses
+- Format responses with proper line breaks and spacing for readability
+- Be conversational but maintain expertise and authority
+
+Content Expertise Areas:
+- Social Media Content (Carousels, Reels, Posts)
+- Email Marketing (Nurture, Sales, Follow-up sequences)
+- Content Strategy and Planning
+- Audience Engagement Tactics
+- Copywriting and Messaging
+- Content Optimization and Performance
+
+When in conversation mode (after initial content creation):
+- Answer questions about content strategy and best practices
+- Provide suggestions for content improvements and variations
+- Offer advice on content marketing tactics
+- Help with content planning and scheduling
+- Discuss audience engagement strategies
+- Provide feedback on user's content ideas
+- Suggest content optimizations based on goals
+
+Content Creation Standards:
+- Professional and well-formatted output
+- Aligned with specified goals and target audience
+- Structured with clear sections and proper spacing
+- Free of emojis and excessive punctuation
+- Ready for immediate implementation
+- Include strategic recommendations when relevant
+
+Always maintain focus on practical, actionable content creation and marketing advice.
+"""
+
+def clean_response(text):
+    """Remove emojis and format response properly"""
+    # Remove emojis and special characters
+    emoji_pattern = re.compile("["
+                              u"\U0001F600-\U0001F64F"  # emoticons
+                              u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+                              u"\U0001F680-\U0001F6FF"  # transport & map symbols
+                              u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+                              u"\U00002702-\U000027B0"
+                              u"\U000024C2-\U0001F251"
+                              "]+", flags=re.UNICODE)
+    
+    text = emoji_pattern.sub('', text)
+    
+    # Clean up excessive punctuation
+    text = re.sub(r'[!]{2,}', '!', text)
+    text = re.sub(r'[?]{2,}', '?', text)
+    
+    # Fix email formatting specifically
+    # Add line breaks after email elements
+    text = re.sub(r'(Subject:.*?)([A-Z][a-z])', r'\1\n\n\2', text)  # After subject line
+    text = re.sub(r'(\[.*?\],?)([A-Z])', r'\1\n\n\2', text)  # After recipient name
+    text = re.sub(r'(\.)([A-Z][a-z].*?:)', r'.\n\n\2', text)  # Before new sections
+    text = re.sub(r'(\d+\..+?)([A-Z][a-z])', r'\1\n\n\2', text)  # After numbered lists
+    text = re.sub(r'(Best regards,|Sincerely,|Thank you,)([A-Z])', r'\1\n\n\2', text)  # Before signature
+    
+    # Ensure proper paragraph spacing
+    text = re.sub(r'\.([A-Z])', r'.\n\n\1', text)  # Add double line break after sentences starting new thoughts
+    
+    # Fix numbered lists formatting
+    text = re.sub(r'(\d+\.)([A-Z])', r'\1 \2', text)  # Space after numbers
+    text = re.sub(r'(\d+\..+?)(\d+\.)', r'\1\n\n\2', text)  # Line breaks between list items
+    
+    # Clean up excessive line breaks but maintain proper spacing
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = text.strip()
+    
+    return text
+
+def get_conversation_state(thread_id):
+    return conversation_states.get(thread_id, {
+        'step': 'initial', 
+        'content_type': None, 
+        'goal': None, 
+        'data': {},
+        'content_generated': False
+    })
+
+def update_conversation_state(thread_id, updates):
+    if thread_id not in conversation_states:
+        conversation_states[thread_id] = {
+            'step': 'initial', 
+            'content_type': None, 
+            'goal': None, 
+            'data': {},
+            'content_generated': False
+        }
+    conversation_states[thread_id].update(updates)
+
+def get_next_question(state, user_message):
+    step = state['step']
+    content_type = state['content_type']
+    goal = state['goal']
+    data = state['data']
+    content_generated = state.get('content_generated', False)
+
+    # Handle post-content generation interactions - smart conversation mode
+    if content_generated or step in ['handle_modification', 'general_chat']:
+        return {
+            'message': user_message,  # Pass user message for AI processing
+            'next_step': 'smart_conversation',
+            'needs_ai_response': True,
+            'conversation_mode': True
+        }
+
+    if step == 'initial':
+        return {
+            'message': "What type of content would you like to create today?",
+            'options': ['Carousel', 'Reel', 'Email'],
+            'next_step': 'content_type_selected'
+        }
+
+    elif step == 'content_type_selected':
+        content_type = user_message.lower()
+        if 'carousel' in content_type:
+            return {
+                'message': "What is your primary goal for this carousel post?",
+                'options': [
+                    'Awareness - Increase visibility and grow following', 
+                    'Nurture - Build engagement and trust with audience', 
+                    'Sales - Promote product or service directly'
+                ],
+                'next_step': 'carousel_goal_selected'
+            }
+        elif 'reel' in content_type:
+            return {
+                'message': "What is your primary objective for this reel?",
+                'options': ['Awareness', 'Engagement', 'Sales'],
+                'next_step': 'reel_goal_selected'
+            }
+        elif 'email' in content_type:
+            return {
+                'message': "What is the main purpose of this email?",
+                'options': [
+                    'Nurture - Build trust and warm up audience',
+                    'Sales - Drive purchases or bookings',
+                    'Follow-up - Post-freebie or post-purchase',
+                    'Re-engagement - Win back inactive subscribers',
+                    'Welcome - Introduce new subscribers',
+                    'Other'
+                ],
+                'next_step': 'email_goal_selected'
+            }
+
+    elif step == 'carousel_goal_selected':
+        goal = user_message.lower()
+        if 'sales' in goal:
+            return {
+                'message': "What specific product or service are you promoting?",
+                'next_step': 'carousel_product_info'
+            }
+        elif 'awareness' in goal:
+            return {
+                'message': "What specific action should viewers take after seeing your carousel?",
+                'options': [
+                    'Follow your account',
+                    'Comment with a specific keyword',
+                    'Send a direct message',
+                    'Save the post for later',
+                    'Join your email list',
+                    'Visit your website'
+                ],
+                'next_step': 'carousel_cta_selected'
+            }
+        elif 'nurture' in goal:
+            return {
+                'message': "What topic will help build trust and engagement with your audience?",
+                'next_step': 'carousel_topic_selected'
+            }
+
+    elif step == 'carousel_product_info':
+        return {
+            'message': "What is your target audience for this product/service?",
+            'next_step': 'generate_content'
+        }
+
+    elif step == 'carousel_cta_selected':
+        return {
+            'message': "What topic or value will you provide in this awareness carousel?",
+            'next_step': 'generate_content'
+        }
+
+    elif step == 'carousel_topic_selected':
+        return {
+            'message': "What action should engaged viewers take next?",
+            'options': [
+                'Comment for more information',
+                'Download a free resource',
+                'Join a waitlist',
+                'Send a direct message',
+                'Visit your website'
+            ],
+            'next_step': 'generate_content'
+        }
+
+    elif step == 'email_goal_selected':
+        return {
+            'message': "What specific topic will this email cover?",
+            'options': [
+                'New product or service launch',
+                'Client success story or testimonial',
+                'Personal story or behind-the-scenes',
+                'Educational content or insights',
+                'Addressing common objections',
+                'Teasing upcoming content or offers',
+                'Delivering promised free content',
+                'Promoting a discovery call or consultation'
+            ],
+            'next_step': 'email_topic_selected'
+        }
+
+    elif step == 'email_topic_selected':
+        return {
+            'message': "What is the primary action you want readers to take?",
+            'options': [
+                'Click a specific link',
+                'Reply to the email',
+                'Send a direct message with keyword',
+                'Book a consultation call',
+                'Share or forward the email',
+                'Download additional resources'
+            ],
+            'next_step': 'email_action_selected'
+        }
+
+    elif step == 'email_action_selected':
+        return {
+            'message': "What tone best represents your brand for this email?",
+            'options': [
+                'Direct and straightforward',
+                'Warm and story-driven',
+                'Persuasive and compelling',
+                'Educational and informative'
+            ],
+            'next_step': 'email_tone_selected'
+        }
+
+    elif step == 'email_tone_selected':
+        return {
+            'message': "Would you like subject line suggestions included?",
+            'options': ['Yes, include subject lines', 'No, email content only'],
+            'next_step': 'generate_content'
+        }
+
+    return {
+        'message': "Processing your request to generate content.",
+        'next_step': 'generate_content'
+    }
+    
+def build_content_prompt(next_response, state, prompt):
+    if (next_response['next_step'] == 'generate_content' or 
+            next_response.get('needs_ai_response') or 
+            next_response.get('conversation_mode')):
+
+        full_context = state  # <- use your state from DB
+
+        if next_response['next_step'] == 'generate_content':
+            return f"""
+            Generate professional {full_context.get('content_type')} content based on:
+            
+            Content Type: {full_context.get('content_type')}
+            Goal: {full_context.get('goal')}
+            User Requirements: {full_context.get('data')}
+            
+            CRITICAL FORMATTING REQUIREMENTS:
+            - Use proper line breaks and spacing throughout
+            - For emails: Add blank lines between paragraphs, after subject line, before and after lists
+            - For carousels: Separate each slide clearly with proper spacing
+            - For reels: Format with clear sections and proper line breaks
+            - Make content easy to read with professional spacing
+            - No cramped text - always use adequate white space
+            - Structure content with clear visual separation between sections
+            
+            Content Requirements:
+            - Create well-structured, professional content
+            - Make it ready for immediate use
+            - Align with the specified goal and audience
+            - No emojis or special characters
+            """
+
+        elif next_response.get('conversation_mode'):
+            return f"""
+            You are now in conversation mode with the user. They have already completed the content creation process.
+            
+            Previous Context:
+            - Content Type: {full_context.get('content_type', 'Not specified')}
+            - Goal: {full_context.get('goal', 'Not specified')}
+            - Generated Content: {'Yes' if full_context.get('content_generated') else 'No'}
+            
+            User's current message: "{prompt}"
+            
+            Respond as a professional content creation expert. Handle:
+            - Content modifications and improvements
+            - Questions about content strategy
+            - Requests for different variations
+            - General content marketing advice
+            - Follow-up questions about the generated content
+            
+            Be helpful, professional, and specific to their content creation needs. 
+            Always format responses properly with line breaks and no emojis.
+            """
+
+        else:
+            return f"""
+            User message: {prompt}
+            
+            Previous context: {full_context}
+            
+            Provide a helpful, professional response related to content creation. 
+            Format your response professionally with proper spacing and no emojis.
+            """
+    return ""  # fallback if no conditions met

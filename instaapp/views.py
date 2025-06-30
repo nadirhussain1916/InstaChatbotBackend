@@ -19,7 +19,7 @@ import asyncio
 from cryptography.fernet import Fernet
 from openai import OpenAI, AuthenticationError, RateLimitError, OpenAIError
 from django.conf import settings
-from .services import ConversationService
+from .services import ConversationService,build_content_prompt,get_next_question,clean_response
 import logging
 from django.db import connection
 
@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 fernet = Fernet(settings.SECRET_ENCRYPTION_KEY)
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 SYSTEM_PROMPT = "You are a helpful assistant that creates engaging Instagram carousel content."
 
@@ -378,3 +379,112 @@ class ChatThreadCreateView(APIView):
         """Return a new unique thread_id without creating it in DB"""
         thread_id = str(uuid.uuid4())
         return Response({'new_chat_id': thread_id}, status=status.HTTP_200_OK)
+
+class ContentChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        data = request.data
+        prompt = data.get('prompt', '').strip()
+        thread_id = data.get('thread_id', '').strip()
+
+        # Create or get thread
+        if not thread_id:
+            thread_id = str(uuid.uuid4())
+        thread, created = ChatThread.objects.get_or_create(
+            user=request.user,
+            thread_id=thread_id
+        )
+
+        # Init state if needed
+        state = thread.state or {
+            'step': 'initial',
+            'content_type': None,
+            'goal': None,
+            'data': {},
+            'content_generated': False
+        }
+
+        # Store user message
+        ChatMessage.objects.create(
+            thread=thread,
+            sender="user",
+            message=prompt
+        )
+
+        # Determine next question
+        next_response = get_next_question(state, prompt)
+
+        # Update state
+        new_state_updates = {
+            'step': next_response['next_step'],
+            'data': {**state.get('data', {}), 'last_response': prompt}
+        }
+        if 'content_type_selected' in next_response['next_step']:
+            new_state_updates['content_type'] = prompt.lower()
+        if 'goal_selected' in next_response['next_step']:
+            new_state_updates['goal'] = prompt.lower()
+
+        # Save updated state
+        thread.state = {**state, **new_state_updates}
+        thread.save()
+
+        # Generate AI response if needed
+        if (next_response['next_step'] == 'generate_content' or 
+            next_response.get('needs_ai_response') or 
+            next_response.get('conversation_mode')):
+
+            # Build content_prompt as before...
+            content_prompt = build_content_prompt(next_response, thread.state, prompt)
+
+            # Call AI
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": content_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=1000
+            )
+            ai_response = clean_response(response.choices[0].message.content)
+
+            # Store AI message
+            ChatMessage.objects.create(
+                thread=thread,
+                sender="ai",
+                message=ai_response
+            )
+
+            # Possibly update state
+            if next_response['next_step'] == 'generate_content':
+                thread.state['content_generated'] = True
+            elif next_response.get('conversation_mode'):
+                thread.state['step'] = 'smart_conversation'
+            thread.save()
+
+            return Response({
+                'thread_id': thread.thread_id,
+                'response': ai_response,
+                'error': None
+            })
+        
+        
+        # Otherwise: structured assistant question + options
+        assistant_reply = clean_response(next_response['message'])
+        if 'options' in next_response:
+            options_text = "\n\nOptions:\n" + "\n".join([f"- {option}" for option in next_response['options']])
+            assistant_reply += options_text
+
+
+        # Otherwise: structured question
+        ChatMessage.objects.create(
+            thread=thread,
+            sender="ai",
+            message=assistant_reply
+        )
+
+        return Response({
+            'thread_id': thread.thread_id,
+            'response': assistant_reply,
+            'error': None
+        })

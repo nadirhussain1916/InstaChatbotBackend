@@ -78,6 +78,8 @@ class ChatThread(models.Model):
     thread_id = models.CharField(max_length=100, unique=True, default=uuid.uuid4)  # ✅ New field
     title = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    state = models.JSONField(default=dict, blank=True, null=True)
+
 
     def __str__(self):
         return f"Chat {self.id} - {self.user.username}"
@@ -87,6 +89,7 @@ class ChatMessage(models.Model):
     sender = models.CharField(max_length=10, choices=[("user", "User"), ("ai", "AI")])
     message = models.TextField()
     timestamp = models.DateTimeField(auto_now_add=True)
+    state = models.JSONField(default=dict, blank=True, null=True)  # ✅ new field
 
     def __str__(self):
         return f"{self.sender.upper()} - {self.message[:30]}"
