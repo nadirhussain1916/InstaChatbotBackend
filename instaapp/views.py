@@ -371,6 +371,12 @@ class ChatDetailView(APIView):
         thread = get_object_or_404(ChatThread, thread_id=thread_id, user=request.user)
         serializer = ChatSerializer(thread)
         return Response(serializer.data)
+    
+    def delete(self, request, thread_id):
+        """Delete the thread"""
+        thread = get_object_or_404(ChatThread, thread_id=thread_id, user=request.user)
+        thread.delete()
+        return Response({'message': 'Thread deleted successfully.'}, status=status.HTTP_204_NO_CONTENT)
 
 class ChatThreadCreateView(APIView):
     permission_classes = [IsAuthenticated]
@@ -386,14 +392,23 @@ class ContentChatView(APIView):
         data = request.data
         prompt = data.get('prompt', '').strip()
         thread_id = data.get('thread_id', '').strip()
+        if not prompt:
+            return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Create or get thread
         if not thread_id:
             thread_id = str(uuid.uuid4())
         thread, created = ChatThread.objects.get_or_create(
             user=request.user,
-            thread_id=thread_id
+            thread_id=thread_id,
+            defaults={'title': prompt}
         )
+                # If thread already existed but title is empty, optionally set title
+        if created:
+            print(f"New thread created with title from prompt: {prompt}")
+        elif not thread.title:
+            thread.title = prompt
+            thread.save()
 
         # Init state if needed
         state = thread.state or {
@@ -465,6 +480,7 @@ class ContentChatView(APIView):
             return Response({
                 'thread_id': thread.thread_id,
                 'response': ai_response,
+                'prompt':prompt,
                 'error': None
             })
         
@@ -486,5 +502,36 @@ class ContentChatView(APIView):
         return Response({
             'thread_id': thread.thread_id,
             'response': assistant_reply,
+            'prompt':prompt,
             'error': None
         })
+
+
+class UpdateThreadTitleView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request):
+        data = request.data
+        thread_id = data.get('thread_id', '').strip()
+        new_title = data.get('title', '').strip()
+
+        if not thread_id or not new_title:
+            return Response(
+                {'error': 'thread_id and title are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            thread = ChatThread.objects.get(user=request.user, thread_id=thread_id)
+            thread.title = new_title
+            thread.save()
+            return Response({
+                'thread_id': thread.thread_id,
+                'title': thread.title,
+                'updated_at': thread.created_at  # or timezone.now() if you add modified
+            })
+        except ChatThread.DoesNotExist:
+            return Response(
+                {'error': 'Thread not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
