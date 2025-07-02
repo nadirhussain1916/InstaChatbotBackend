@@ -388,122 +388,80 @@ class ChatThreadCreateView(APIView):
 
 class ContentChatView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
         data = request.data
+        new_chat = data.get('new_chat', {})
         prompt = data.get('prompt', '').strip()
-        thread_id = data.get('thread_id', '').strip()
+        thread_id = data.get('threadid', '').strip()
+
         if not prompt:
             return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Create or get thread
         if not thread_id:
             thread_id = str(uuid.uuid4())
+
         thread, created = ChatThread.objects.get_or_create(
             user=request.user,
             thread_id=thread_id,
             defaults={'title': prompt}
         )
-                # If thread already existed but title is empty, optionally set title
+
         if created:
             print(f"New thread created with title from prompt: {prompt}")
         elif not thread.title:
             thread.title = prompt
             thread.save()
 
-        # Init state if needed
-        state = thread.state or {
-            'step': 'initial',
-            'content_type': None,
-            'goal': None,
-            'data': {},
-            'content_generated': False
-        }
+        # ✅ Build a combined conversation history for the prompt
+        conversation_history = ""
 
-        # Store user message
-        ChatMessage.objects.create(
-            thread=thread,
-            sender="user",
-            message=prompt
+        if new_chat:
+            conversation_history += (
+                "Below are some previous questions and answers from the user for your interest only. "
+                "Remember these for context, but do not answer them again:\n"
+            )
+            for question, answer in new_chat.items():
+                if question and answer:
+                    # Store in DB
+                    ChatMessage.objects.create(thread=thread, sender="ai", message=question)
+                    ChatMessage.objects.create(thread=thread, sender="user", message=answer)
+                    conversation_history += f"User: {question}\nAI: {answer}\n"
+
+        # ✅ Now emphasize main query
+        conversation_history += (
+            "\nNow here is the main question the user wants you to answer. "
+            "Please generate your response considering the previous context:\n"
+        )
+        conversation_history += f"User: {prompt}\nAI:"
+
+
+        # ✅ Call the AI with this as a single big prompt
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": conversation_history}
+            ],
+            temperature=0.7,
+            max_tokens=1000
         )
 
-        # Determine next question
-        next_response = get_next_question(state, prompt)
+        ai_response = clean_response(response.choices[0].message.content)
 
-        # Update state
-        new_state_updates = {
-            'step': next_response['next_step'],
-            'data': {**state.get('data', {}), 'last_response': prompt}
-        }
-        if 'content_type_selected' in next_response['next_step']:
-            new_state_updates['content_type'] = prompt.lower()
-        if 'goal_selected' in next_response['next_step']:
-            new_state_updates['goal'] = prompt.lower()
-
-        # Save updated state
-        thread.state = {**state, **new_state_updates}
-        thread.save()
-
-        # Generate AI response if needed
-        if (next_response['next_step'] == 'generate_content' or 
-            next_response.get('needs_ai_response') or 
-            next_response.get('conversation_mode')):
-
-            # Build content_prompt as before...
-            content_prompt = build_content_prompt(next_response, thread.state, prompt)
-
-            # Call AI
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": content_prompt}
-                ],
-                temperature=0.7,
-                max_tokens=1000
-            )
-            ai_response = clean_response(response.choices[0].message.content)
-
-            # Store AI message
-            ChatMessage.objects.create(
-                thread=thread,
-                sender="ai",
-                message=ai_response
-            )
-
-            # Possibly update state
-            if next_response['next_step'] == 'generate_content':
-                thread.state['content_generated'] = True
-            elif next_response.get('conversation_mode'):
-                thread.state['step'] = 'smart_conversation'
-            thread.save()
-
-            return Response({
-                'thread_id': thread.thread_id,
-                'response': ai_response,
-                'prompt':prompt,
-                'error': None
-            })
-        
-        
-        # Otherwise: structured assistant question + options
-        assistant_reply = clean_response(next_response['message'])
-        if 'options' in next_response:
-            options_text = "\n\nOptions:\n" + "\n".join([f"- {option}" for option in next_response['options']])
-            assistant_reply += options_text
-
-
-        # Otherwise: structured question
+        # Save AI message
         ChatMessage.objects.create(
             thread=thread,
             sender="ai",
-            message=assistant_reply
+            message=ai_response
         )
 
         return Response({
-            'thread_id': thread.thread_id,
-            'response': assistant_reply,
-            'prompt':prompt,
-            'error': None
+            "thread_id": thread.thread_id,
+            "response": ai_response,
+            "prompt": prompt,
+            "error": None
         })
 
 
