@@ -22,7 +22,7 @@ from django.conf import settings
 from .services import ConversationService,build_content_prompt,get_next_question,clean_response
 import logging
 from django.db import connection
-
+from .constant import REELS_SYSTEM_PROMPT,EMAIL_SYSTEM_PROMPT,CAROUSEL_SYSTEM_PROMPT,GENERIC_SYSTEM_PROMPT
 # Set up logging to console if not already configured
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(
@@ -424,20 +424,38 @@ class ContentChatView(APIView):
             )
             for question, answer in new_chat.items():
                 if question and answer:
-                    # Store in DB
                     ChatMessage.objects.create(thread=thread, sender="ai", message=question)
                     ChatMessage.objects.create(thread=thread, sender="user", message=answer)
                     conversation_history += f"User: {question}\nAI: {answer}\n"
 
-        # ✅ Now emphasize main query
+        # ✅ Determine system prompt type based on first question/answer
+        SYSTEM_PROMPT = ""
+        if new_chat:
+            first_answer = next(iter(new_chat.values())).lower()
+            if re.search(r"\breel", first_answer):
+                SYSTEM_PROMPT = REELS_SYSTEM_PROMPT
+                print("✅ Selected SYSTEM_PROMPT: REELS")
+            elif re.search(r"\bemail", first_answer):
+                SYSTEM_PROMPT = EMAIL_SYSTEM_PROMPT
+                print("✅ Selected SYSTEM_PROMPT: EMAIL")
+            elif re.search(r"\b(carousel|carousal)", first_answer):
+                SYSTEM_PROMPT = CAROUSEL_SYSTEM_PROMPT
+                print("✅ Selected SYSTEM_PROMPT: CAROUSEL")
+            else:
+                SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
+                print("✅ Selected SYSTEM_PROMPT: GENERIC")
+        else:
+            SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
+            print("✅ Selected SYSTEM_PROMPT: GENERIC (no previous context)")
+
+        # ✅ Emphasize main query
         conversation_history += (
             "\nNow here is the main question the user wants you to answer. "
             "Please generate your response considering the previous context:\n"
         )
         conversation_history += f"User: {prompt}\nAI:"
 
-
-        # ✅ Call the AI with this as a single big prompt
+        # ✅ Call AI
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
