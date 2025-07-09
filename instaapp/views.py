@@ -467,17 +467,18 @@ class ContentChatView(APIView):
         )
 
         ai_response = clean_response(response.choices[0].message.content)
+        cleaned_ai_response = re.sub(r'^\s*\d+\.\s*', '', ai_response, flags=re.MULTILINE)
 
         # Save AI message
         ChatMessage.objects.create(
             thread=thread,
             sender="ai",
-            message=ai_response
+            message=cleaned_ai_response
         )
 
         return Response({
             "thread_id": thread.thread_id,
-            "response": ai_response,
+            "response": cleaned_ai_response,
             "prompt": prompt,
             "error": None
         })
