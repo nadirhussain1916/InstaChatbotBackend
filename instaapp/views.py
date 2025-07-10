@@ -414,7 +414,7 @@ class ContentChatView(APIView):
         data = request.data
         new_chat = data.get('new_chat', {})
         prompt = data.get('prompt', '').strip()
-        thread_id = data.get('threadid', '').strip()
+        thread_id = data.get('thread_id', '').strip()
 
         if not prompt:
             return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
