@@ -378,6 +378,27 @@ class ChatDetailView(APIView):
         thread.delete()
         return Response({'message': 'Thread deleted successfully.'}, status=status.HTTP_204_NO_CONTENT)
 
+
+def clean_ai_text(text):
+    # Remove **bold**, *italic*, _italic_
+    text = re.sub(r'(\*\*|\*|_)(.*?)\1', r'\2', text)
+
+    # Remove Slide lines like "Slide 1 (Hook):" or "Slide 2:"
+    text = re.sub(r'^\s*Slide\s*\d+(\s*\(.*?\))?:?\s*', '', text, flags=re.MULTILINE)
+
+    # Remove numbered or bulleted lists like "1. ", "- ", "• "
+    text = re.sub(r'^\s*(\d+\.|\-|\•)\s*', '', text, flags=re.MULTILINE)
+
+    # Remove all double quotes
+    text = text.replace('"', '')
+
+    # Collapse multiple newlines into two
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    # Strip any leading/trailing whitespace
+    return text.strip()
+
+
 class ChatThreadCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -467,7 +488,7 @@ class ContentChatView(APIView):
         )
 
         ai_response = clean_response(response.choices[0].message.content)
-        cleaned_ai_response = re.sub(r'^\s*\d+\.\s*', '', ai_response, flags=re.MULTILINE)
+        cleaned_ai_response = clean_ai_text(ai_response)
 
         # Save AI message
         ChatMessage.objects.create(
