@@ -448,6 +448,7 @@ class ContentChatView(APIView):
                     ChatMessage.objects.create(thread=thread, sender="ai", message=question)
                     ChatMessage.objects.create(thread=thread, sender="user", message=answer)
                     conversation_history += f"User: {question}\nAI: {answer}\n"
+    
 
         # ✅ Determine system prompt type based on first question/answer
         SYSTEM_PROMPT = ""
@@ -468,6 +469,14 @@ class ContentChatView(APIView):
         else:
             SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
             print("✅ Selected SYSTEM_PROMPT: GENERIC (no previous context)")
+            
+        # ✅ Load full history from database
+        messages = thread.messages.order_by('timestamp')  # thanks to related_name="messages"
+
+        conversation_history = ""
+        for msg in messages:
+            role = "User" if msg.sender == "user" else "AI"
+            conversation_history += f"{role}: {msg.message}\n"
 
         # ✅ Emphasize main query
         conversation_history += (
