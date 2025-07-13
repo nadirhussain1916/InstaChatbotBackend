@@ -59,19 +59,13 @@ class Message(models.Model):
     class Meta:
         ordering = ['-timestamp']
         
-class Question(models.Model):
-    text = models.TextField()
-
-    def __str__(self):
-        return self.text
-
-class UserAnswer(models.Model):
+class onBoardingAnswer(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    question = models.TextField()
     answer = models.TextField()
 
     def __str__(self):
-        return f"{self.user.username} - {self.question.id}"
+        return f"{self.user.username} - {self.question}"
     
 class ChatThread(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="chat_threads")

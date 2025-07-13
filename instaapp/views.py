@@ -10,8 +10,8 @@ import uuid
 
 import re
 from rest_framework_simplejwt.tokens import RefreshToken
-from instaapp.models import Instagram_User, InstagramPost,Question, UserAnswer,ChatThread, ChatMessage
-from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,QuestionSerializer, UserAnswerSerializer,ChatThreadSerializer,ChatSerializer
+from instaapp.models import Instagram_User, InstagramPost,onBoardingAnswer,ChatThread, ChatMessage
+from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,ChatThreadSerializer,ChatSerializer
 from instaapp.helper import save_user_profile, fetch_user_instagram_profile_data, check_instagram_credentials, get_and_save_post_detail
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
@@ -66,7 +66,7 @@ class CustomSignInView(APIView):
         if user:
             logger.info(f"[CustomSignInView] User '{username}' authenticated successfully.")
             refresh = RefreshToken.for_user(user)
-            has_answered = UserAnswer.objects.filter(user=user).exists()
+            has_answered = onBoardingAnswer.objects.filter(user=user).exists()
             response_data = {
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
@@ -258,13 +258,13 @@ class CarouselGeneratorView(APIView):
             if not has_previous_threads:
                 logger.info("[CarouselGeneratorView] First conversation detected. Building user profile summary...")
 
-                user_answers = UserAnswer.objects.filter(user=request.user).select_related('question')
+                user_answers = onBoardingAnswer.objects.filter(user=request.user)
                 
                 if user_answers.exists():
                     summary_lines = [
-                        f"- {answer.question.text.strip()}: {answer.answer.strip()}"
-                        for answer in user_answers
-                    ]
+                            f"- {answer.question.strip()}: {answer.answer.strip()}"
+                            for answer in user_answers
+                        ]
                     summary_text = "\n".join(summary_lines)
                     
                     logger.info(f"[CarouselGeneratorView] Onboarding summary:\n{summary_text}")
@@ -333,25 +333,21 @@ class CarouselGeneratorView(APIView):
         logger.info(f"[CarouselGeneratorView] POST request completed for user: {request.user.username}")
         
 
-class GetQuestionsView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        questions = Question.objects.all()
-        serializer = QuestionSerializer(questions, many=True)
-        return Response(serializer.data)
-
-class SubmitAnswersView(APIView):
+class onBoardingAnswersView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         answers = request.data.get('answers', [])
         for item in answers:
-            UserAnswer.objects.update_or_create(
+            question_text = item.get('question')
+            answer_text = item.get('answer')
+
+            onBoardingAnswer.objects.update_or_create(
                 user=request.user,
-                question_id=item['question'],
-                defaults={'answer': item['answer']}
+                question=question_text,
+                defaults={'answer': answer_text}
             )
+
         return Response({"message": "Answers submitted successfully"})
 
 class UserChatListView(APIView):
@@ -415,6 +411,70 @@ class ContentChatView(APIView):
         new_chat = data.get('new_chat', {})
         prompt = data.get('prompt', '').strip()
         thread_id = data.get('thread_id', '').strip()
+        
+        if not thread_id and not prompt:
+            user_answers = onBoardingAnswer.objects.filter(user=request.user)
+
+            if not user_answers.exists():
+                return Response({"error": "No onboarding data found for user."}, status=status.HTTP_400_BAD_REQUEST)
+
+            summary_lines = [
+                f"- {answer.question.strip()}: {answer.answer.strip()}"
+                for answer in user_answers
+            ]
+            summary_text = "\n".join(summary_lines)
+
+            logger.info(f"[ContentChatView] Onboarding summary used as first prompt:\n{summary_text}")
+
+                # Build prompt that guides the AI to produce a personalized summary + welcome message
+            prompt = (
+                "The following is information collected from the user during onboarding. "
+                "Based on this, generate a personalized summary of the user along with a friendly welcome message. "
+                "Do not list the questions directly — instead, rephrase them into a natural summary that shows you understand the user. "
+                "Then suggest how you can assist them going forward.\n\n"
+                f"{summary_text}"
+            )
+
+            # Also generate a new thread id
+            thread_id = str(uuid.uuid4())
+            thread, _ = ChatThread.objects.get_or_create(
+                user=request.user,
+                thread_id=thread_id,
+                defaults={'title': "Onboarding summary"}
+            )
+
+            # Directly build conversation history with only this
+            conversation_history = f"User onboarding info:\n{summary_text}\n\nAI:"
+
+            SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
+
+            # Call AI
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": conversation_history}
+                ],
+                temperature=0.7,
+                max_tokens=1000
+            )
+
+            ai_response = clean_response(response.choices[0].message.content)
+            cleaned_ai_response = clean_ai_text(ai_response)
+
+            # Save AI response to thread
+            ChatMessage.objects.create(
+                thread=thread,
+                sender="ai",
+                message=cleaned_ai_response
+            )
+
+            return Response({
+                "thread_id": thread.thread_id,
+                "response": cleaned_ai_response,
+                "prompt": "",
+                "error": None
+            })
 
         if not prompt:
             return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -431,7 +491,7 @@ class ContentChatView(APIView):
 
         if created:
             print(f"New thread created with title from prompt: {prompt}")
-        elif not thread.title:
+        elif not thread.title or thread.title == "Onboarding summary":
             thread.title = prompt
             thread.save()
 
@@ -469,7 +529,12 @@ class ContentChatView(APIView):
         else:
             SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
             print("✅ Selected SYSTEM_PROMPT: GENERIC (no previous context)")
-            
+        
+        ChatMessage.objects.create(
+            thread=thread, sender="user",
+            message=prompt
+        )
+        
         # ✅ Load full history from database
         messages = thread.messages.order_by('timestamp')  # thanks to related_name="messages"
 
