@@ -215,123 +215,7 @@ def encrypt_password(plain_text):
     logger.debug("[encrypt_password] Encrypting password.")
     return fernet.encrypt(plain_text.encode()).decode()
 
-class CarouselGeneratorView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.conversation_service = ConversationService()
-        logger.info("[CarouselGeneratorView] Initialized.")
-
-    def post(self, request):
-        """Generate carousel content using the conversation service."""
-        logger.info(f"[CarouselGeneratorView] POST request received. User: {request.user.username}, Data: {request.data}")
-        try:
-            data = request.data
-            logger.info(f"[CarouselGeneratorView] Extracting parameters from request data: {data}")
-            
-            description = data.get('description')
-                
-            logger.info(f"[CarouselGeneratorView] Parameters - description: {description}")
-            
-            if not description:
-                logger.warning("[CarouselGeneratorView] Missing required fields.")
-                return Response({
-                    "error": "Both 'description' are required"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            acutal_description = description
-           
-                    
-    
-            thread_id = data.get('thread_id')
-            logger.info(f"[CarouselGeneratorView] Additional parameters -  thread_id: {thread_id}")
-            
-           
-             # ✅ Check if user has any previous threads
-            has_previous_threads = False
-
-            if thread_id:
-                logger.info("[CarouselGeneratorView] Checking for existing thread by thread_id...")
-                has_previous_threads = ChatThread.objects.filter(user=request.user, thread_id=thread_id).exists()
-            else:
-                logger.info("[CarouselGeneratorView] No thread_id provided; setting has_previous_threads = False.")
-            if not has_previous_threads:
-                logger.info("[CarouselGeneratorView] First conversation detected. Building user profile summary...")
-
-                user_answers = onBoardingAnswer.objects.filter(user=request.user)
-                
-                if user_answers.exists():
-                    summary_lines = [
-                            f"- {answer.question.strip()}: {answer.answer.strip()}"
-                            for answer in user_answers
-                        ]
-                    summary_text = "\n".join(summary_lines)
-                    
-                    logger.info(f"[CarouselGeneratorView] Onboarding summary:\n{summary_text}")
-                    
-                    # 🧠 Clarify that onboarding is *background only* and question is what needs the answer
-                    description = (
-                        "You are an assistant helping users by answering their questions clearly. "
-                        "Below is some background context about the user. You may use this to guide tone or relevance, "
-                        "but you should NOT mention or refer to the background directly. "
-                        "Just focus on answering the user's actual question accurately and clearly.\n\n"
-                        "### USER BACKGROUND (FOR CONTEXT ONLY, DO NOT MENTION) ###\n"
-                        f"{summary_text}\n\n"
-                        "### USER QUESTION ###\n"
-                        f"{description}"
-                    )
-
-            
-            # Log inspiration processing start
-           
-            logger.info("[CarouselGeneratorView] Calling conversation service to generate carousel...")
-            result = self.conversation_service.generate_carousel(
-                description=description,
-                thread_id=thread_id
-            )
-            thread_id = result.get('thread_id')
-            thread, _ = ChatThread.objects.get_or_create(
-                    user=request.user,
-                    thread_id=thread_id  # Only use your custom thread_id field
-                )
-
-            # Save user prompt
-            ChatMessage.objects.create(
-                thread=thread,
-                sender="user",
-                message=acutal_description
-            )
-            
-            ChatMessage.objects.create(
-                thread=thread,
-                sender="ai",
-                message="\n".join(result['carousel_content']['slides'])  # or json.dumps(...)
-            )
-            
-            logger.info(f"[CarouselGeneratorView] Carousel generated successfully.")
-            logger.info(f"[CarouselGeneratorView] Result details - Thread ID: {result['thread_id']}, Model used: {result['model_used']}")
-            carousel_content = result['carousel_content']['slides']
-            cleaned_content = [para.strip() for para in carousel_content if para.strip()]     
-            full_text = " ".join(cleaned_content)    
-            response_data = {
-                "success": True,
-                "thread_id": thread_id,
-                "description": acutal_description,
-                "carousel_content": full_text,
-            }
-            
-            logger.info(f"[CarouselGeneratorView] Sending successful response with carousel content")
-            return Response(response_data, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.error(f"[CarouselGeneratorView] Error in carousel generation: {str(e)}", exc_info=True)
-            return Response({
-                "error": "An unexpected error occurred",
-                "message": str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        logger.info(f"[CarouselGeneratorView] POST request completed for user: {request.user.username}")
-        
+   
 
 class onBoardingAnswersView(APIView):
     permission_classes = [IsAuthenticated]
@@ -403,6 +287,61 @@ class ChatThreadCreateView(APIView):
         thread_id = str(uuid.uuid4())
         return Response({'new_chat_id': thread_id}, status=status.HTTP_200_OK)
 
+
+def build_user_persona(user_answers):
+    # Convert queryset of models to dict
+    answers = {qa.question.lower(): qa.answer for qa in user_answers}
+    
+    # Same as before...
+    first_name = answers.get("what's your first name?", "Unknown")
+    help_statement = answers.get("in one sentence, what do you help people do?", "Not specified")
+    brand_name = answers.get("what is your brand or business name?", "Unnamed brand")
+    primary_goal = answers.get("what do you want help with most?", "Various things")
+    tone_tags = answers.get("voice tone", "Neutral").split(",")
+    tone = ", ".join([t.strip() for t in tone_tags])
+
+    intro = (
+        f"You are chatting with {first_name}, who runs a brand called \"{brand_name}\".\n"
+        f"They help people with this: \"{help_statement}\".\n"
+        f"Their goals include: {primary_goal}.\n"
+        f"They want content that sounds {tone.lower()}.\n"
+        f"They prefer medium to long content by default.\n"
+        f"Always respond in a tone that reflects their personality and voice."
+    )
+
+    offers = answers.get("your offers")
+    if offers and offers.strip():
+        intro += f"\nHere are their offers:\n- {offers.strip()}"
+
+    origin_story = answers.get("how did this all start? what pushed you to build your business?", "").strip()
+    challenges = answers.get("what challenges have you overcome along the way?", "").strip()
+    wins = answers.get("what's gone right? this is your moment!", "").strip()
+
+    if origin_story:
+        intro += f"\nTheir origin story: {origin_story}"
+    if challenges:
+        intro += f"\nChallenges they've overcome: {challenges}"
+    if wins:
+        intro += f"\nBig wins:\n- {wins}"
+
+    return intro
+
+
+def create_chat_completion(user_persona, user_input):
+        messages = [
+            {"role": "system", "content": f"""You are a creative, friendly AI assistant called 'DB'. 
+        You help users generate content aligned with their brand and tone.
+        {user_persona}
+        """},
+                {"role": "user", "content": user_input}
+            ]
+        
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=messages
+        )
+        return response.choices[0].message.content
+    
 class ContentChatView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -411,75 +350,50 @@ class ContentChatView(APIView):
         new_chat = data.get('new_chat', {})
         prompt = data.get('prompt', '').strip()
         thread_id = data.get('thread_id', '').strip()
-        
-        if not thread_id and not prompt:
-            user_answers = onBoardingAnswer.objects.filter(user=request.user)
 
-            if not user_answers.exists():
+        # ✅ Load user onboarding data (stored as JSON in DB)
+        try:
+            user_answers_qs = onBoardingAnswer.objects.filter(user=request.user)
+
+            if not user_answers_qs.exists():
                 return Response({"error": "No onboarding data found for user."}, status=status.HTTP_400_BAD_REQUEST)
+        except AttributeError:
+            return Response({"error": "No onboarding data found for user."}, status=status.HTTP_400_BAD_REQUEST)
 
-            summary_lines = [
-                f"- {answer.question.strip()}: {answer.answer.strip()}"
-                for answer in user_answers
-            ]
-            summary_text = "\n".join(summary_lines)
+        # Build user persona text
+        user_persona = build_user_persona(user_answers_qs)
 
-            logger.info(f"[ContentChatView] Onboarding summary used as first prompt:\n{summary_text}")
-
-                # Build prompt that guides the AI to produce a personalized summary + welcome message
-            prompt = (
-                "The following is information collected from the user during onboarding. "
-                "Based on this, generate a personalized summary of the user along with a friendly welcome message. "
-                "Do not list the questions directly — instead, rephrase them into a natural summary that shows you understand the user. "
-                "Then suggest how you can assist them going forward.\n\n"
-                f"{summary_text}"
+        # === If starting from scratch (no prompt + no thread) ===
+        if not thread_id and not prompt:
+            # Create onboarding summary prompt
+            initial_prompt = (
+                "Based on the following user persona, generate a warm, friendly personalized summary "
+                "that welcomes them and suggests how you can assist going forward:\n\n"
+                f"{user_persona}"
             )
-
-            # Also generate a new thread id
             thread_id = str(uuid.uuid4())
             thread, _ = ChatThread.objects.get_or_create(
                 user=request.user,
                 thread_id=thread_id,
-                defaults={'title': "Onboarding summary"}
+                defaults={'title': "Personalized onboarding summary"}
             )
 
-            # Directly build conversation history with only this
-            conversation_history = f"User onboarding info:\n{summary_text}\n\nAI:"
+            ai_response = create_chat_completion(user_persona, initial_prompt)
 
-            SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
-
-            # Call AI
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": conversation_history}
-                ],
-                temperature=0.7,
-                max_tokens=1000
-            )
-
-            ai_response = clean_response(response.choices[0].message.content)
-            cleaned_ai_response = clean_ai_text(ai_response)
-
-            # Save AI response to thread
-            ChatMessage.objects.create(
-                thread=thread,
-                sender="ai",
-                message=cleaned_ai_response
-            )
+            ChatMessage.objects.create(thread=thread, sender="ai", message=ai_response)
 
             return Response({
                 "thread_id": thread.thread_id,
-                "response": cleaned_ai_response,
+                "response": ai_response,
                 "prompt": "",
                 "error": None
             })
 
+        # === If continuing conversation ===
         if not prompt:
             return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create or get thread
+        # Get or create chat thread
         if not thread_id:
             thread_id = str(uuid.uuid4())
 
@@ -488,96 +402,48 @@ class ContentChatView(APIView):
             thread_id=thread_id,
             defaults={'title': prompt}
         )
-
         if created:
             print(f"New thread created with title from prompt: {prompt}")
-        elif not thread.title or thread.title == "Onboarding summary":
+        elif not thread.title or thread.title == "Personalized onboarding summary":
             thread.title = prompt
             thread.save()
 
-        # ✅ Build a combined conversation history for the prompt
+        # Build conversation history
         conversation_history = ""
-
         if new_chat:
-            conversation_history += (
-                "Below are some previous questions and answers from the user for your interest only. "
-                "Remember these for context, but do not answer them again:\n"
-            )
+            conversation_history += "Context from previous exchanges:\n"
             for question, answer in new_chat.items():
-                if question and answer:
-                    ChatMessage.objects.create(thread=thread, sender="ai", message=question)
-                    ChatMessage.objects.create(thread=thread, sender="user", message=answer)
-                    conversation_history += f"User: {question}\nAI: {answer}\n"
-    
+                ChatMessage.objects.create(thread=thread, sender="ai", message=question)
+                ChatMessage.objects.create(thread=thread, sender="user", message=answer)
+                conversation_history += f"User: {question}\nAI: {answer}\n"
 
-        # ✅ Determine system prompt type based on first question/answer
-        SYSTEM_PROMPT = ""
-        if new_chat:
-            first_answer = next(iter(new_chat.values())).lower()
-            if re.search(r"\breel", first_answer):
-                SYSTEM_PROMPT = REELS_SYSTEM_PROMPT
-                print("✅ Selected SYSTEM_PROMPT: REELS")
-            elif re.search(r"\bemail", first_answer):
-                SYSTEM_PROMPT = EMAIL_SYSTEM_PROMPT
-                print("✅ Selected SYSTEM_PROMPT: EMAIL")
-            elif re.search(r"\b(carousel|carousal)", first_answer):
-                SYSTEM_PROMPT = CAROUSEL_SYSTEM_PROMPT
-                print("✅ Selected SYSTEM_PROMPT: CAROUSEL")
-            else:
-                SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
-                print("✅ Selected SYSTEM_PROMPT: GENERIC")
-        else:
-            SYSTEM_PROMPT = GENERIC_SYSTEM_PROMPT
-            print("✅ Selected SYSTEM_PROMPT: GENERIC (no previous context)")
-        
-        ChatMessage.objects.create(
-            thread=thread, sender="user",
-            message=prompt
-        )
-        
-        # ✅ Load full history from database
-        messages = thread.messages.order_by('timestamp')  # thanks to related_name="messages"
-
-        conversation_history = ""
+        # Load existing messages from DB
+        messages = thread.messages.order_by('timestamp')
         for msg in messages:
             role = "User" if msg.sender == "user" else "AI"
             conversation_history += f"{role}: {msg.message}\n"
 
-        # ✅ Emphasize main query
-        conversation_history += (
-            "\nNow here is the main question the user wants you to answer. "
-            "Please generate your response considering the previous context:\n"
-        )
-        conversation_history += f"User: {prompt}\nAI:"
+        # Append the current question
+        conversation_history += f"\nNow the user asks: {prompt}\nAI:"
 
-        # ✅ Call AI
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": conversation_history}
-            ],
-            temperature=0.7,
-            max_tokens=1000
+        # Call AI with persona + conversation
+        full_prompt = (
+            f"{user_persona}\n\n"
+            "Here's the conversation so far:\n"
+            f"{conversation_history}"
         )
 
-        ai_response = clean_response(response.choices[0].message.content)
-        cleaned_ai_response = clean_ai_text(ai_response)
+        ai_response = create_chat_completion(user_persona, full_prompt)
 
-        # Save AI message
-        ChatMessage.objects.create(
-            thread=thread,
-            sender="ai",
-            message=cleaned_ai_response
-        )
+        ChatMessage.objects.create(thread=thread, sender="user", message=prompt)
+        ChatMessage.objects.create(thread=thread, sender="ai", message=ai_response)
 
         return Response({
             "thread_id": thread.thread_id,
-            "response": cleaned_ai_response,
+            "response": ai_response,
             "prompt": prompt,
             "error": None
         })
-
 
 class UpdateThreadTitleView(APIView):
     permission_classes = [IsAuthenticated]

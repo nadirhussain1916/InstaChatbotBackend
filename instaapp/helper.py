@@ -112,7 +112,7 @@ def get_top_instagram_posts(username_to_discover, max_posts=50, top_n=3):
         "access_token": long_term_access_token
     }
     logger.info(f"[get_top_instagram_posts] Request params: {params}")
-    response = requests.get(url, params=params)
+    response = requests.get(url, params=params,timeout=10)
     logger.info(f"[get_top_instagram_posts] Response status: {response.status_code}, body: {response.text}")
     if response.status_code == 200:
         logger.info(f"[get_top_instagram_posts] Success for: {username_to_discover}")

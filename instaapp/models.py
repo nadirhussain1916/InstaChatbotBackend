@@ -18,9 +18,9 @@ class Instagram_User(models.Model):
 
 class InstagramPost(models.Model):
     user = models.ForeignKey('Instagram_User', on_delete=models.CASCADE, related_name='instagram_posts')
-    post_url = models.URLField()
+    post_url = models.URLField(max_length=2500)
     caption = models.TextField(blank=True, null=True)
-    media_url = models.URLField(blank=True, null=True)  # Image or video URL
+    media_url = models.URLField(max_length=2500,blank=True, null=True)  # Image or video URL
     thumbnail_url = models.ImageField(upload_to='thumbnails/', null=True, blank=True)
     post_type = models.CharField(max_length=50, choices=[
         ('image', 'Image'),

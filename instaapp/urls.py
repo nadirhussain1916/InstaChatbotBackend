@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CustomSignInView,InstagramFetchData,get_user_profile,get_user_posts,CarouselGeneratorView,onBoardingAnswersView,UserChatListView,ChatDetailView,ChatThreadCreateView,ContentChatView,UpdateThreadTitleView
+from .views import CustomSignInView,InstagramFetchData,get_user_profile,get_user_posts,onBoardingAnswersView,UserChatListView,ChatDetailView,ChatThreadCreateView,ContentChatView,UpdateThreadTitleView
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -11,7 +11,6 @@ urlpatterns = [
     path('instagram/signin-user/', CustomSignInView.as_view(), name='token_obtain_pair'),      # Sign In
     path('instagram/signin-user/refresh/', TokenRefreshView.as_view(), name='token_refresh'),     # Refresh
     path("instagram/save-userData/", InstagramFetchData.as_view(), name="instagram-fetch-data"),
-    # path('instagram/generate-carousel/', CarouselGeneratorView.as_view(), name='generate_carousel'),
     path('instagram/user-profile/', get_user_profile, name='get_user_profile'),
     path('instagram/user-posts/', get_user_posts, name='get_user_posts'),
     path('instagram/submit-answers/', onBoardingAnswersView.as_view(), name='submit_answers'),
@@ -20,6 +19,5 @@ urlpatterns = [
     path('instagram/chats/<str:thread_id>/', ChatDetailView.as_view(), name='chat_detail'),
     path('instagram/generate-carousel/', ContentChatView.as_view(), name='content-chat'),
     path('instagram/update-thread-title/', UpdateThreadTitleView.as_view(), name='update-thread-title'),
-
 
 ]

@@ -74,25 +74,23 @@ REST_FRAMEWORK = {
 
 
 # Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.sqlite3",
-#         "NAME": BASE_DIR / "db.sqlite3",
-#     }
-# }
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'instagram',  
-        'USER': 'root',       
-        'PASSWORD': '',
-        'HOST': 'localhost',     
-        'PORT': '3306',  
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', 'instagram'),
+        'USER': os.environ.get('DB_USER', 'neondb_owner'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', ''),
+        'PORT': os.environ.get('DB_PORT', '5432'),
+        'OPTIONS': {
+            'sslmode': os.environ.get('DB_SSLMODE', 'require'),
+            'channel_binding': os.environ.get('DB_CHANNEL_BINDING', 'require'),
+        },
     }
 }
+
+
 
 
 
