@@ -222,9 +222,27 @@ class onBoardingAnswersView(APIView):
 
     def post(self, request):
         answers = request.data.get('answers', [])
+        if not answers:
+            return Response({"error": "Answers are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        ai_response_obj = onBoardingAnswer.objects.filter(
+            user=request.user,
+            question="onBoardingAiResponse"
+        ).first()
+
+        if ai_response_obj:
+            return Response({
+                "message": "AI response already exists.",
+                "ai_response": ai_response_obj.answer
+            }, status=status.HTTP_200_OK)
+
+        # Save or update each answer
         for item in answers:
             question_text = item.get('question')
             answer_text = item.get('answer')
+
+            if not question_text or not answer_text:
+                continue  # Skip invalid entries
 
             onBoardingAnswer.objects.update_or_create(
                 user=request.user,
@@ -232,7 +250,47 @@ class onBoardingAnswersView(APIView):
                 defaults={'answer': answer_text}
             )
 
-        return Response({"message": "Answers submitted successfully"})
+        # Retrieve all user answers
+        user_answers_qs = onBoardingAnswer.objects.filter(user=request.user)
+
+        if not user_answers_qs.exists():
+            return Response({"error": "No onboarding data found for the user."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Build user persona and get AI response
+        try:
+            user_persona = build_user_persona(user_answers_qs)
+            initial_prompt = (
+                "Based on the following user persona, generate a warm, friendly personalized summary "
+                "that welcomes them and suggests how you can assist going forward:\n\n"
+                f"{user_persona}"
+            )
+
+            ai_response = create_chat_completion(user_persona, initial_prompt)
+
+            onBoardingAnswer.objects.update_or_create(
+                user=request.user,
+                question="onBoardingAiResponse",
+                defaults={'answer': ai_response}
+            )
+        except Exception as e:
+            return Response({"error": f"Error generating AI response: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"message": "Answers submitted successfully."}, status=status.HTTP_200_OK)   
+
+    def get(self, request):
+        ai_response_obj = onBoardingAnswer.objects.filter(
+            user=request.user,
+            question="onBoardingAiResponse"
+        ).first()
+
+        if ai_response_obj:
+            return Response({
+                "ai_response": ai_response_obj.answer
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            "error": "No onboarding AI response found for this user."
+        }, status=status.HTTP_404_NOT_FOUND)
 
 class UserChatListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -363,32 +421,6 @@ class ContentChatView(APIView):
         # Build user persona text
         user_persona = build_user_persona(user_answers_qs)
 
-        # === If starting from scratch (no prompt + no thread) ===
-        if not thread_id and not prompt:
-            # Create onboarding summary prompt
-            initial_prompt = (
-                "Based on the following user persona, generate a warm, friendly personalized summary "
-                "that welcomes them and suggests how you can assist going forward:\n\n"
-                f"{user_persona}"
-            )
-            thread_id = str(uuid.uuid4())
-            thread, _ = ChatThread.objects.get_or_create(
-                user=request.user,
-                thread_id=thread_id,
-                defaults={'title': "Personalized onboarding summary"}
-            )
-
-            ai_response = create_chat_completion(user_persona, initial_prompt)
-
-            ChatMessage.objects.create(thread=thread, sender="ai", message=ai_response)
-
-            return Response({
-                "thread_id": thread.thread_id,
-                "response": ai_response,
-                "prompt": "",
-                "error": None
-            })
-
         # === If continuing conversation ===
         if not prompt:
             return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -440,6 +472,7 @@ class ContentChatView(APIView):
 
         return Response({
             "thread_id": thread.thread_id,
+             "thread_title": thread.title,
             "response": ai_response,
             "prompt": prompt,
             "error": None
