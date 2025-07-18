@@ -260,8 +260,8 @@ class onBoardingAnswersView(APIView):
         try:
             user_persona = build_user_persona(user_answers_qs)
             initial_prompt = (
-                "Based on the following user persona, generate a warm, friendly personalized summary "
-                "that welcomes them and suggests how you can assist going forward:\n\n"
+                "Based on the following user persona, write a short and warm welcome message in 3 to 5 lines. "
+                "Keep it friendly, personalized, and clearly mention how you can help going forward:\n\n"
                 f"{user_persona}"
             )
 
