@@ -384,7 +384,7 @@ def clean_ai_text(text):
     text = re.sub(r'(\*\*|\*|_)(.*?)\1', r'\2', text)
 
     # Remove Slide lines like "Slide 1 (Hook):" or "Slide 2:"
-    text = re.sub(r'^\s*Slide\s*\d+(\s*\(.*?\))?:?\s*', '', text, flags=re.MULTILINE)
+    # text = re.sub(r'^\s*Slide\s*\d+(\s*\(.*?\))?:?\s*', '', text, flags=re.MULTILINE)
 
     # Remove numbered or bulleted lists like "1. ", "- ", "• "
     text = re.sub(r'^\s*(\d+\.|\-|\•)\s*', '', text, flags=re.MULTILINE)
