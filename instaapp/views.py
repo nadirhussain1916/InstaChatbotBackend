@@ -316,27 +316,6 @@ class ChatDetailView(APIView):
         thread.delete()
         return Response({'message': 'Thread deleted successfully.'}, status=status.HTTP_204_NO_CONTENT)
 
-
-def clean_ai_text(text):
-    # Remove **bold**, *italic*, _italic_
-    text = re.sub(r'(\*\*|\*|_)(.*?)\1', r'\2', text)
-
-    # Remove Slide lines like "Slide 1 (Hook):" or "Slide 2:"
-    text = re.sub(r'^\s*Slide\s*\d+(\s*\(.*?\))?:?\s*', '', text, flags=re.MULTILINE)
-
-    # Remove numbered or bulleted lists like "1. ", "- ", "• "
-    text = re.sub(r'^\s*(\d+\.|\-|\•)\s*', '', text, flags=re.MULTILINE)
-
-    # Remove all double quotes
-    text = text.replace('"', '')
-
-    # Collapse multiple newlines into two
-    text = re.sub(r'\n{3,}', '\n\n', text)
-
-    # Strip any leading/trailing whitespace
-    return text.strip()
-
-
 class ChatThreadCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -399,6 +378,25 @@ def create_chat_completion(user_persona, user_input):
             messages=messages
         )
         return response.choices[0].message.content
+    
+def clean_ai_text(text):
+    # Remove **bold**, *italic*, _italic_
+    text = re.sub(r'(\*\*|\*|_)(.*?)\1', r'\2', text)
+
+    # Remove Slide lines like "Slide 1 (Hook):" or "Slide 2:"
+    text = re.sub(r'^\s*Slide\s*\d+(\s*\(.*?\))?:?\s*', '', text, flags=re.MULTILINE)
+
+    # Remove numbered or bulleted lists like "1. ", "- ", "• "
+    text = re.sub(r'^\s*(\d+\.|\-|\•)\s*', '', text, flags=re.MULTILINE)
+
+    # Remove all double quotes
+    text = text.replace('"', '')
+
+    # Collapse multiple newlines into two
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    # Strip any leading/trailing whitespace
+    return text.strip()
     
 class ContentChatView(APIView):
     permission_classes = [IsAuthenticated]
@@ -466,6 +464,7 @@ class ContentChatView(APIView):
         )
 
         ai_response = create_chat_completion(user_persona, full_prompt)
+        ai_response = clean_ai_text(ai_response)
 
         ChatMessage.objects.create(thread=thread, sender="user", message=prompt)
         ChatMessage.objects.create(thread=thread, sender="ai", message=ai_response)
