@@ -87,3 +87,11 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.sender.upper()} - {self.message[:30]}"
+
+class SystemPrompt(models.Model):
+    name = models.CharField(default="default",max_length=100, unique=True)  # e.g., "default", "carousel", etc.
+    content = models.TextField(default="You are a helpful assistant.",help_text="System prompt text used in AI interactions.")
+    is_active = models.BooleanField(default=True)  # You can enable/disable prompts
+
+    def __str__(self):
+        return self.name

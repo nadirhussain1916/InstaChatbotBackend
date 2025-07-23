@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Instagram_User,InstagramPost,ChatThread, ChatMessage
+from .models import Instagram_User,InstagramPost,ChatThread, ChatMessage,SystemPrompt
 
         
 class CarouselGeneratorSerializer(serializers.Serializer):
@@ -51,4 +51,7 @@ class ChatSerializer(serializers.ModelSerializer):
         return ChatMessageSerializer(ordered_messages, many=True).data
     
 
-
+class SystemPromptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemPrompt
+        fields = '__all__'

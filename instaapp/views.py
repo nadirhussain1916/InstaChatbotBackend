@@ -10,7 +10,7 @@ import uuid
 
 import re
 from rest_framework_simplejwt.tokens import RefreshToken
-from instaapp.models import Instagram_User, InstagramPost,onBoardingAnswer,ChatThread, ChatMessage
+from instaapp.models import Instagram_User, InstagramPost,onBoardingAnswer,ChatThread, ChatMessage,SystemPrompt
 from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,ChatThreadSerializer,ChatSerializer
 from instaapp.helper import save_user_profile, fetch_user_instagram_profile_data, check_instagram_credentials, get_and_save_post_detail
 from django.contrib.auth.models import User
@@ -384,7 +384,7 @@ def clean_ai_text(text):
     text = re.sub(r'(\*\*|\*|_)(.*?)\1', r'\2', text)
 
     # Remove Slide lines like "Slide 1 (Hook):" or "Slide 2:"
-    # text = re.sub(r'^\s*Slide\s*\d+(\s*\(.*?\))?:?\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*Slide\s*\d+(\s*\(.*?\))?:?\s*', '', text, flags=re.MULTILINE)
 
     # Remove numbered or bulleted lists like "1. ", "- ", "• "
     text = re.sub(r'^\s*(\d+\.|\-|\•)\s*', '', text, flags=re.MULTILINE)
@@ -455,17 +455,16 @@ class ContentChatView(APIView):
 
         # Append the current question
         conversation_history += f"\nNow the user asks: {prompt}\nAI:"
-
-        # Call AI with persona + conversation
+        system_prompt = get_active_system_prompt(name="system_prompt")  # or "default" if general
         full_prompt = (
+            f"{system_prompt}\n\n"
             f"{user_persona}\n\n"
             "Here's the conversation so far:\n"
             f"{conversation_history}"
         )
 
-        ai_response = create_chat_completion(user_persona, full_prompt)
-        ai_response = clean_ai_text(ai_response)
 
+        ai_response = create_chat_completion(user_persona, full_prompt)
         ChatMessage.objects.create(thread=thread, sender="user", message=prompt)
         ChatMessage.objects.create(thread=thread, sender="ai", message=ai_response)
 
@@ -505,3 +504,10 @@ class UpdateThreadTitleView(APIView):
                 {'error': 'Thread not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+def get_active_system_prompt(name="default"):
+    try:
+        return SystemPrompt.objects.get(name=name, is_active=True).content
+    except SystemPrompt.DoesNotExist:
+        return "You are a helpful assistant."  # fallback
