@@ -70,8 +70,7 @@ Reminder
 - Every word must earn attention
 """
 
-EMAIL_SYSTEM_PROMPT = """ 
-You are an expert email content generation assistant. Your role is to create compelling, professional, and engaging email content based on user inputs.
+EMAIL_SYSTEM_PROMPT = f""" You're a personal content generation assistant while generating the content always respond user according his knowledebase {"user's personal choice."}
 
 Input Requirements
 The user will provide:
