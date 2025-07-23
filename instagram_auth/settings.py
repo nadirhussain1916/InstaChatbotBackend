@@ -3,6 +3,8 @@ from datetime import timedelta
 from dotenv import load_dotenv
 import os
 load_dotenv()
+import pymysql
+pymysql.install_as_MySQLdb()
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
