@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: InstaChatbotBackend
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: OPENAI_API_KEY
+        value: sk-svcacct-Q3SIFN-yx2o...
+      - key: ANTHROPIC_API_KEY
+        value: sk-ant-api03-_Pi8L4...
+      - key: FINE_TUNED_MODEL_ID
+        value: ft:gpt-3.5-turbo-0125:kar-brulhart-inc::BlEigy85
+      - key: instagram_account_id
+        value: 17841473786030787
+      - key: app_id
+        value: 733930852382062
+      - key: app_secret
+        value: 574a77895a7119a58e9080fa47ffe477
+      - key: long_term_access_token
+        value: EAAKbgZAeZB9W4BOZCW3ZA...
+      - key: FERNET_KEY
+        value: bqGTzhWghP3WcCnaG3VK8pxZNqtPAerXMt_2_vIHs74=
+      - key: DB_NAME
+        value: instagram
+      - key: DB_USER
+        value: neondb_owner
+      - key: DB_PASSWORD
+        value: npg_sphTUVCz93Re
+      - key: DB_HOST
+        value: ep-withered-bonus-aduv0vpq-pooler.c-2.us-east-1.aws.neon.tech
+      - key: DB_PORT
+        value: 5432
+      - key: DB_SSLMODE
+        value: require
+      - key: DB_CHANNEL_BINDING
+        value: require
+      - key: CLOUDINARY_CLOUD_NAME
+        value: dvmqqvw6b
+      - key: CLOUDINARY_API_KEY
+        value: 669948416124993
+      - key: CLOUDINARY_API_SECRET
+        value: FiZvnTgkyWKCKmORVJjJpUvIZVM
