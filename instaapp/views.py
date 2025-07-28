@@ -54,6 +54,104 @@ SYSTEM_PROMPT = "You are a helpful assistant that creates engaging Instagram car
 
 logger.info('[Startup] API and view modules loaded. Logging initialized.')
 
+class CustomSignUpView(APIView):
+    http_method_names = ['post']
+
+    def post(self, request):
+        """Handle user sign-up and authentication."""
+        logger.info(f"[CustomSignUpView] POST request received. Data: {request.data}")
+        logger.info(f"[CustomSignUpView] Checking database connection...")
+        try:
+            connection.ensure_connection()
+            logger.info("[CustomSignUpView] Database connection OK.")
+        except Exception as db_exc:
+            logger.error(f"[CustomSignUpView] Database connection error: {db_exc}")
+            return Response({'error': 'Database connection error.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        username = request.data.get('username')
+        password = request.data.get('password')
+
+        logger.info(f"[CustomSignUpView] Params - username: {username}")
+
+        if not username or not password:
+            logger.warning("[CustomSignUpView] Username or password missing.")
+            return Response({'error': 'Username and password required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if '@' in username:
+            logger.warning("[CustomSignUpView] Email provided instead of username.")
+            return Response({'error': 'Please enter your Instagram username, not email.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ✅ Check if username already exists
+        if User.objects.filter(username=username).exists():
+            logger.warning("[CustomSignUpView] Username already exists.")
+            return Response({'error': 'Username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            logger.info(f"[InstagramFetchData] Fetching Instagram profile data for: {username}")
+            res = fetch_user_instagram_profile_data(username)
+            logger.info(f"[InstagramFetchData] Response: {res}")
+            print('=-=-=-=-res=-=-=-=-',res)
+            if res:
+                business_discovery_res = res.get("business_discovery")
+                if business_discovery_res:
+                    user = User.objects.create_user(username=username, password=password)
+                    if user:
+                        print('----------12123')
+                        Instagram_User.objects.create(
+                            user=user,
+                            username=username,
+                            password=encrypt_password(password)
+                        )
+
+                        user = authenticate(username=username, password=password)
+                    
+                        refresh = RefreshToken.for_user(user)
+                        
+                        save_user_profile(
+                        username,
+                        business_discovery_res.get("name"),
+                        business_discovery_res.get("followers_count"),
+                        business_discovery_res.get("media_count"),
+                        business_discovery_res.get("profile_picture_url"),
+                    )
+                        logger.info(f"[InstagramFetchData] Instagram data fetched and saved for: {username}")
+
+                    
+                        response_data = {
+                        "status": "success",
+                        "refresh": str(refresh),
+                        "access": str(refresh.access_token),
+                        "has_answered": False
+                    }
+                        logger.info(f"[CustomSignUpView] Response: {response_data}")
+                        return Response(response_data, status=status.HTTP_201_CREATED)
+                    else:
+                        logger.error(f"[CustomSignUpView] Authentication failed after user creation for '{username}'.")
+                        return Response({
+                            "status": "error",
+                            "message": "Authentication failed after user creation."
+                        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+                else:
+                    logger.warning(f"[InstagramFetchData] 'business_discovery' not found in response for: {username}")
+                    return Response({
+                        "status": "error",
+                        "message": "Instagram profile data not available."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                logger.error(f"[InstagramFetchData] Failed to fetch Instagram profile data for: {username}")
+                return Response({
+                    "status": "error",
+                    "message": "Instagram profile data fetch failed."
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            logger.error(f"[CustomSignUpView] Exception during sign-up: {str(e)}")
+            return Response(
+                {"error": f"Failed to complete sign-up: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )    
+        
 class CustomSignInView(APIView):
     http_method_names = ['post']
     def post(self, request):
@@ -89,48 +187,10 @@ class CustomSignInView(APIView):
             return Response(response_data)
         else:
             logger.info(f"[CustomSignInView] User '{username}' not found or wrong password. Checking Instagram credentials.")
-            try:
-                user = User.objects.get(username=username)
-                logger.warning(f"[CustomSignInView] Incorrect password for user '{username}'.")
-                return Response({'error': 'Incorrect password'}, status=status.HTTP_401_UNAUTHORIZED)
-            except User.DoesNotExist:
-                result = check_instagram_credentials(username, password)
-                logger.info(f"[CustomSignInView] Instagram credential check result: {result}")
-                if result.get("status") == "success":
-                    user = User.objects.create_user(
-                        username=username,
-                        password=password
-                    )
-                    user = authenticate(username=username, password=password)
-                    Instagram_User.objects.create(
-                        user=user,
-                        username=username,
-                        password=encrypt_password(password)
-                    )
-                    if user:
-                        refresh = RefreshToken.for_user(user)
-                        response_data = {
-                            "status": "success",
-                            "refresh": str(refresh),
-                            "access": str(refresh.access_token),
-                            'has_answered':False
-                        }
-                        logger.info(f"[CustomSignInView] Response: {response_data}")
-                        return Response(response_data, status=status.HTTP_201_CREATED)
-                    else:
-                        logger.error(f"[CustomSignInView] Authentication failed after user creation for '{username}'.")
-                        return Response({
-                            "status": "error",
-                            "message": "Authentication failed after user creation."
+            return Response({"status": "error",
+                            "message": "Authentication failed. Please check your username and password."
                         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                else:
-                    logger.warning(f"[CustomSignInView] Instagram credential check failed: {result}")
-                    return Response({
-                        "status": result.get("status"),
-                        "message": result.get("message")
-                    }, status=status.HTTP_401_UNAUTHORIZED)
-        logger.info(f"[CustomSignInView] POST request completed for username: {request.data.get('username')}")
-
+            
 class InstagramFetchData(APIView):
     permission_classes = [IsAuthenticated]  # ✅ only authenticated users allowed
 
@@ -198,7 +258,6 @@ class InstagramFetchData(APIView):
                 {"error": f"Failed to fetch Instagram data: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        logger.info(f"[InstagramFetchData] POST request completed for user: {request.user.username}")
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

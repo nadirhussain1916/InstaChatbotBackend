@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CustomSignInView,InstagramFetchData,get_user_profile,get_user_posts,onBoardingAnswersView,UserChatListView,ChatDetailView,ChatThreadCreateView,ContentChatView,UpdateThreadTitleView
+from .views import CustomSignInView,InstagramFetchData,get_user_profile,get_user_posts,onBoardingAnswersView,UserChatListView,ChatDetailView,ChatThreadCreateView,ContentChatView,UpdateThreadTitleView,CustomSignUpView
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -8,6 +8,7 @@ from rest_framework_simplejwt.views import (
 
 
 urlpatterns = [
+    path('instagram/signup-user/', CustomSignUpView.as_view(), name='sign1up_user'),          # Sign Up
     path('instagram/signin-user/', CustomSignInView.as_view(), name='token_obtain_pair'),      # Sign In
     path('instagram/signin-user/refresh/', TokenRefreshView.as_view(), name='token_refresh'),     # Refresh
     path("instagram/save-userData/", InstagramFetchData.as_view(), name="instagram-fetch-data"),
