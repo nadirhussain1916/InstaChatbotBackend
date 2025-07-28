@@ -82,6 +82,7 @@ def save_user_profile(username, full_name, followers, post_count, profile_img):
     user_obj.full_name = full_name
     user_obj.followers = followers
     user_obj.posts = post_count
+    user_obj.media_url = profile_img
     if profile_img:
         logger.debug(f"[save_user_profile] Downloading profile image for: {username}")
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
