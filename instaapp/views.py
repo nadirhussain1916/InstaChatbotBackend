@@ -189,7 +189,7 @@ class CustomSignInView(APIView):
             logger.info(f"[CustomSignInView] User '{username}' not found or wrong password. Checking Instagram credentials.")
             return Response({"status": "error",
                             "message": "Authentication failed. Please check your username and password."
-                        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                        }, status=status.HTTP_400_BAD_REQUEST)
             
 class InstagramFetchData(APIView):
     permission_classes = [IsAuthenticated]  # ✅ only authenticated users allowed
@@ -685,3 +685,35 @@ def get_active_system_prompt(name="default"):
         return SystemPrompt.objects.get(name=name, is_active=True).content
     except SystemPrompt.DoesNotExist:
         return "You are a helpful assistant."  # fallback
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        current_password = request.data.get('current_password')
+        new_password = request.data.get('new_password')
+        
+        if not current_password or not new_password:
+            return Response({'error': 'new_password and current_password required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user.check_password(current_password):
+            return Response({'error': 'Current password is incorrect'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+        return Response({'message': 'Password changed successfully'}, status=status.HTTP_200_OK)
+
+class ResetPasswordView(APIView):
+    def post(self, request):
+        username = request.data.get('username')
+        new_password = request.data.get('password')
+        if not username or not new_password:
+            return Response({'error': 'Username and new password are required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.objects.get(username=username)
+            user.set_password(new_password)
+            user.save()
+            return Response({'message': 'Password reset successfully'}, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({'error': 'User does not exist'}, status=status.HTTP_404_NOT_FOUND)

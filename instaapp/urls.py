@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CustomSignInView,InstagramFetchData,get_user_profile,get_user_posts,onBoardingAnswersView,UserChatListView,ChatDetailView,ChatThreadCreateView,ContentChatView,UpdateThreadTitleView,CustomSignUpView
+from .views import CustomSignInView,InstagramFetchData,get_user_profile,get_user_posts,onBoardingAnswersView,UserChatListView,ChatDetailView,ChatThreadCreateView,ContentChatView,UpdateThreadTitleView,CustomSignUpView,ChangePasswordView,ResetPasswordView
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -20,5 +20,7 @@ urlpatterns = [
     path('instagram/chats/<str:thread_id>/', ChatDetailView.as_view(), name='chat_detail'),
     path('instagram/generate-carousel/', ContentChatView.as_view(), name='content-chat'),
     path('instagram/update-thread-title/', UpdateThreadTitleView.as_view(), name='update-thread-title'),
+    path('instagram/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    path('instagram/reset-password/', ResetPasswordView.as_view(), name='reset-password'),
 
 ]
