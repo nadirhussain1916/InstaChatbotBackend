@@ -9,12 +9,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', "django-insecure-^baredo@4py=(i6l=w0o6*7%u$*u%p#mbf2+(o@$()b#lh%qrl")
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', "django-insecure-^baredo@4py=(i6l=w0o6*7%u$*u%p#mbf2+(o@$()b#lh%qrl")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 CORS_ALLOW_ALL_ORIGINS = True
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
 
 # Application definition
@@ -152,9 +152,9 @@ FINE_TUNED_MODEL_ID = os.getenv('FINE_TUNED_MODEL_ID', 'ft:gpt-3.5-turbo-0125:ka
 SECRET_ENCRYPTION_KEY = os.environ.get('FERNET_KEY')
 
 # Instagram OAuth2 settings
-SOCIAL_AUTH_INSTAGRAM_KEY = "1717476175794446"        # Client ID
-SOCIAL_AUTH_INSTAGRAM_SECRET = "98750104cc7f71f0f75256d05e40fd2c"  # Client Secret
-SOCIAL_AUTH_INSTAGRAM_REDIRECT_URI = 'http://127.0.0.1:8000/complete/instagram/'
+SOCIAL_AUTH_INSTAGRAM_KEY = os.getenv('INSTAGRAM_CLIENT_ID', "1717476175794446")        # Client ID
+SOCIAL_AUTH_INSTAGRAM_SECRET = os.getenv('INSTAGRAM_CLIENT_SECRET', "98750104cc7f71f0f75256d05e40fd2c")  # Client Secret
+SOCIAL_AUTH_INSTAGRAM_REDIRECT_URI = os.getenv('INSTAGRAM_REDIRECT_URI', 'http://127.0.0.1:8000/complete/instagram/')
 SOCIAL_AUTH_INSTAGRAM_SCOPE = ['user_profile', 'user_media']
 
 LOGIN_URL = 'login'
