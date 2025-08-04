@@ -153,7 +153,7 @@ This API enables authentication and interaction with Instagram user data includi
 ## 🎠 Generate Carousel from Posts
 
 - **Generate Carousel:**
-  - `POST /instagram/generate-carousel/`
+  - `POST /instagram/chat-message/`
   - **Headers:**
     - `Authorization: Bearer <access_token>`
   - **Body:**
