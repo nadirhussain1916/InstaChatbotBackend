@@ -11,8 +11,7 @@ class CarouselGeneratorSerializer(serializers.Serializer):
 class InstagramUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = Instagram_User
-        fields = ['id', 'username', 'full_name', 'followers', 'posts', 'profile_pic']
-
+        fields = ['id', 'username', 'full_name', 'followers', 'posts', 'profile_pic','media_url']
 class InstagramPostSerializer(serializers.ModelSerializer):
     class Meta:
         model = InstagramPost

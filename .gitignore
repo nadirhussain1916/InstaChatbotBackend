@@ -2,4 +2,6 @@
 .venv
 # Ignore Python cache in all subdirectories
 **/__pycache__/
+venv
+medias
 # Ignore node_modules

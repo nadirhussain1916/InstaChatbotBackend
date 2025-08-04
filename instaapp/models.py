@@ -11,6 +11,7 @@ class Instagram_User(models.Model):
     posts = models.PositiveIntegerField(null=True, blank=True)
     profile_pic = models.ImageField(upload_to='instagram/', null=True, blank=True)
     password = models.CharField(max_length=128, blank=True, null=True)
+    media_url = models.URLField(max_length=2500,blank=True, null=True)  # Image or video URL
 
     def __str__(self):
         return self.username
