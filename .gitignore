@@ -3,4 +3,5 @@
 **/__pycache__/
 venv
 medias
+media
 # Ignore node_modules
