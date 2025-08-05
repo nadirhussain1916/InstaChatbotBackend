@@ -18,6 +18,14 @@ DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 CORS_ALLOW_ALL_ORIGINS = True
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
+# CSRF trusted origins for cross-domain requests
+CSRF_TRUSTED_ORIGINS = [
+    'https://insta-chatbot-frontend.vercel.app',
+    'https://instachatbotbackend-production.up.railway.app',
+    'http://127.0.0.1:8000',  # for local development
+    'http://localhost:8000',  # for local development
+]
+
 
 # Application definition
 
