@@ -12,6 +12,7 @@ class Instagram_User(models.Model):
     profile_pic = models.ImageField(upload_to='instagram/', null=True, blank=True)
     password = models.CharField(max_length=128, blank=True, null=True)
     media_url = models.URLField(max_length=2500,blank=True, null=True)  # Image or video URL
+    is_insta_api = models.BooleanField(default=False)  # ✅ New boolean field
 
     def __str__(self):
         return self.username
