@@ -9,6 +9,10 @@ import logging
 import requests
 import datetime
 from django.db import connection
+import instaloader
+from instaapp.header import header_set
+import time, random
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -184,3 +188,150 @@ def get_and_save_post_detail(username):
             logger.info(f"[get_and_save_post_detail] Media file saved for post: {post_id}")
             instagram_post.thumbnail_url.save(media_file.name, media_file)
 
+
+def get_random_headers():
+    return random.choice(header_set)
+
+def create_context(browser):
+    headers = get_random_headers()
+    return browser.new_context(extra_http_headers=headers)
+
+def get_post_playwright(username):
+    retries = 2
+    attempt = 0
+    while attempt <= retries:
+        try:
+            with sync_playwright() as p:
+                browser = p.firefox.launch(headless=True)
+                context = create_context(browser)
+                page = context.new_page()
+                print(f"Opening Instagram profile: {username} (Attempt {attempt+1})")
+                page.goto(f"https://www.instagram.com/{username}/", timeout=20000)
+                page.wait_for_selector("article a", timeout=10000)
+
+                post_links = page.locator("article a").all()
+                if not post_links:
+                    print("No posts found.")
+                    return []
+
+                results = []
+                for link in post_links[:3]:
+                    href = link.get_attribute("href")
+                    if not href:
+                        continue
+
+                    post_url = f"https://www.instagram.com{href}"
+                    post_page = context.new_page()
+                    post_page.goto(post_url, timeout=10000)
+                    post_page.wait_for_selector("article", timeout=10000)
+
+                    # Media URL & Post Type
+                    media_url = None
+                    post_type = "Image"
+                    video = post_page.query_selector("video")
+                    if video:
+                        media_url = video.get_attribute("src")
+                        post_type = "Video"
+                    else:
+                        img = post_page.query_selector("article img")
+                        media_url = img.get_attribute("src") if img else None
+
+                    # Likes
+                    likes = None
+                    likes_el = post_page.query_selector("section span span")
+                    if likes_el:
+                        try:
+                            likes = int(likes_el.inner_text().replace(",", ""))
+                        except:
+                            pass
+
+                    # Comments count
+                    comments = len(post_page.query_selector_all("ul > ul"))
+
+                    # Timestamp
+                    timestamp_el = post_page.query_selector("time")
+                    timestamp = timestamp_el.get_attribute("datetime") if timestamp_el else None
+                    if timestamp:
+                        timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+
+                    # Append result
+                    results.append({
+                        "media_url": media_url,
+                        "post_type": post_type,
+                        "likes": likes,
+                        "comments": comments,
+                        "timestamp": timestamp
+                    })
+
+                    post_page.close()
+
+                browser.close()
+                return results
+
+        except PlaywrightTimeoutError as e:
+            print(f"[TimeoutError] Retrying in 10 seconds... ({attempt+1}/{retries})")
+            time.sleep(10)
+            attempt += 1
+        except Exception as e:
+            print(f"[Error] {str(e)} — Retrying in 10 seconds... ({attempt+1}/{retries})")
+            time.sleep(10)
+            attempt += 1
+
+    print("Failed after multiple attempts.")
+    return []
+
+
+def get_and_save_post_detail_byplaywright(username):
+    try:
+        data = get_post_playwright(username)
+    except Exception as e:
+        print(f"Failed to fetch posts for {username}: {e}")
+        return
+    user = get_object_or_404(Instagram_User, username=username)
+    InstagramPost.objects.filter(user=user).delete()
+
+    for post in data:
+        try:
+            media_url = post.get("media_url")
+            media_type = post.get("post_type")
+            likes = post.get("likes")
+            comments = post.get("comments")
+            timestamp = parse(post.get("timestamp")) if post.get("timestamp") else None
+            post_id = post.get("shortcode")
+            post_url = f"https://www.instagram.com/p/{post_id}/" if post_id else None
+
+            if all([media_url, post_id]):  # Basic validation
+                InstagramPost.objects.create(
+                    user=user,
+                    post_url=post_url,
+                    media_url=media_url,
+                    post_type=media_type,
+                    likes=likes,
+                    comments=comments,
+                    timestamp=timestamp,
+                    shortcode=post_id,
+                )
+            else:
+                print("Skipping post due to missing media_url or shortcode.")
+
+        except Exception as e:
+            print(f"Error saving post: {e}")
+            continue
+
+
+def fetch_user_instagram_profile_data_byInstaloader(username):
+    L = instaloader.Instaloader()
+    
+    try:
+        profile = instaloader.Profile.from_username(L.context, username)
+
+        return {
+            "name": profile.full_name,
+            "followers": profile.followers,
+            "media_count": profile.mediacount,
+            "profile_picture_url": profile.profile_pic_url
+        }
+
+    except Exception as e:
+        # Return None on any error (user not found, rate limit, private profile, etc.)
+        return None

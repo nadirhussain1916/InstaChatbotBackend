@@ -51,6 +51,25 @@ class ChatSerializer(serializers.ModelSerializer):
     
 
 class SystemPromptSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(required=True, allow_blank=False)
+    content = serializers.CharField(required=True, allow_blank=False)
+    is_active = serializers.BooleanField(required=True)
+    
     class Meta:
         model = SystemPrompt
-        fields = '__all__'
+        fields = "__all__"
+
+    def validate(self, data):
+        if not data.get('name'):
+            raise serializers.ValidationError({'name': 'This field is required.'})
+        if not data.get('content'):
+            raise serializers.ValidationError({'content': 'This field is required.'})
+        if 'is_active' not in data:
+            raise serializers.ValidationError({'is_active': 'This field is required.'})
+
+        return data
+    
+    def validate_name(self, value):
+        if self.instance is None and SystemPrompt.objects.filter(name=value).exists():
+            raise serializers.ValidationError('A prompt with this name already exists.')
+        return value

@@ -11,8 +11,8 @@ import uuid
 import re
 from rest_framework_simplejwt.tokens import RefreshToken
 from instaapp.models import Instagram_User, InstagramPost,onBoardingAnswer,ChatThread, ChatMessage,SystemPrompt
-from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,ChatThreadSerializer,ChatSerializer
-from instaapp.helper import save_user_profile, fetch_user_instagram_profile_data, check_instagram_credentials, get_and_save_post_detail
+from .serializers import InstagramUserSerializer, InstagramPostSerializer, CarouselGeneratorSerializer,ChatThreadSerializer,ChatSerializer,SystemPromptSerializer
+from instaapp.helper import save_user_profile, fetch_user_instagram_profile_data, check_instagram_credentials, get_and_save_post_detail,fetch_user_instagram_profile_data_byInstaloader,get_and_save_post_detail_byplaywright
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 import asyncio
@@ -26,7 +26,7 @@ from .constant import REELS_SYSTEM_PROMPT,EMAIL_SYSTEM_PROMPT,CAROUSEL_SYSTEM_PR
 import json
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status,permissions
 
 from .models import onBoardingAnswer
 
@@ -139,11 +139,47 @@ class CustomSignUpView(APIView):
                         "message": "Instagram profile data not available."
                     }, status=status.HTTP_400_BAD_REQUEST)
             else:
-                logger.error(f"[InstagramFetchData] Failed to fetch Instagram profile data for: {username}")
-                return Response({
-                    "status": "error",
-                    "message": "Instagram profile data fetch failed."
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                result = fetch_user_instagram_profile_data_byInstaloader(username)
+                if result:
+                    user = User.objects.create_user(username=username, password=password)
+                    if user:
+                        print('----------12123')
+                        Instagram_User.objects.create(
+                            user=user,
+                            username=username,
+                            password=encrypt_password(password),
+                            is_insta_api = True
+                        )
+
+                        user = authenticate(username=username, password=password)
+                    
+                        refresh = RefreshToken.for_user(user)
+                        
+                        save_user_profile(
+                        username,
+                        result.get("name"),
+                        result.get("followers_count"),
+                        result.get("media_count"),
+                        result.get("profile_picture_url"),
+                    )
+                        logger.info(f"[InstagramFetchData] Instagram data fetched and saved for: {username}")
+
+                    
+                        response_data = {
+                        "status": "success",
+                        "refresh": str(refresh),
+                        "access": str(refresh.access_token),
+                        "has_answered": False
+                    }
+                        logger.info(f"[CustomSignUpView] Response: {response_data}")
+                        return Response(response_data, status=status.HTTP_201_CREATED)
+
+                else:
+                    logger.error(f"[InstagramFetchData] Failed to fetch Instagram profile data for: {username}")
+                    return Response({
+                        "status": "error",
+                        "message": "Instagram profile data fetch failed."
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
             logger.error(f"[CustomSignUpView] Exception during sign-up: {str(e)}")
@@ -221,7 +257,10 @@ class InstagramFetchData(APIView):
             def background_task():
                 try:
                     logger.info(f"[InstagramFetchData] Fetching Instagram profile data for: {insta_username}")
-                    res = fetch_user_instagram_profile_data(insta_username)
+                    if insta_user.is_insta_api:
+                        res = fetch_user_instagram_profile_data_byInstaloader(insta_username)
+                    else:   
+                        res = fetch_user_instagram_profile_data(insta_username)
                     logger.info(f"[InstagramFetchData] fetch_user_instagram_profile_data response: {res}")
                     if res:
                         business_discovery_res = res.get("business_discovery")
@@ -241,7 +280,10 @@ class InstagramFetchData(APIView):
                         logger.error(f"[InstagramFetchData] Failed to fetch Instagram profile data for: {insta_username}")
                 except Exception as e:
                     logger.error(f"[InstagramFetchData] Background task error: {e}")
-                get_and_save_post_detail(insta_username)
+                if insta_user.is_insta_api:
+                    get_and_save_post_detail_byplaywright(insta_username)
+                else:
+                    get_and_save_post_detail(insta_username)
                 logger.info(f"[InstagramFetchData] Post details fetched and saved for: {insta_username}")
 
             # ✅ Run it in background
@@ -717,3 +759,49 @@ class ResetPasswordView(APIView):
             return Response({'message': 'Password reset successfully'}, status=status.HTTP_200_OK)
         except User.DoesNotExist:
             return Response({'error': 'User does not exist'}, status=status.HTTP_404_NOT_FOUND)
+        
+
+# Custom admin-only permission
+class IsAdminUser(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_staff)
+
+class SystemPromptView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, pk=None):
+        if pk:
+            prompt = get_object_or_404(SystemPrompt, pk=pk)
+            serializer = SystemPromptSerializer(prompt)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            prompts = SystemPrompt.objects.all()
+            serializer = SystemPromptSerializer(prompts, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+    def post(self, request):
+        serializer = SystemPromptSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request, pk=None):
+        if not pk:
+            return Response({"error": "Prompt ID (pk) is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        prompt = get_object_or_404(SystemPrompt, pk=pk)
+        serializer = SystemPromptSerializer(prompt, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, pk=None):
+        if not pk:
+            return Response({"error": "Prompt ID (pk) is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        prompt = get_object_or_404(SystemPrompt, pk=pk)
+        prompt.delete()
+        return Response({"message": "Prompt deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
