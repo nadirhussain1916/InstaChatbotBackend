@@ -214,10 +214,14 @@ class CustomSignInView(APIView):
             logger.info(f"[CustomSignInView] User '{username}' authenticated successfully.")
             refresh = RefreshToken.for_user(user)
             has_answered = onBoardingAnswer.objects.filter(user=user).exists()
+                # Determine role from built-in is_staff
+            role = "admin" if user.is_staff else "user"
+
             response_data = {
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
-                'has_answered':has_answered
+                'has_answered':has_answered,
+                "role":role
             }
             logger.info(f"[CustomSignInView] Response: {response_data}")
             return Response(response_data)
