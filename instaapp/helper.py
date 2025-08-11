@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 ig_user_id = os.getenv('instagram_account_id')
 long_term_access_token = os.getenv('long_term_access_token')
 
+# Debug logging for environment variables
+logger.info(f"[Environment Check] ig_user_id: {'SET' if ig_user_id else 'NOT SET'}")
+logger.info(f"[Environment Check] long_term_access_token: {'SET' if long_term_access_token else 'NOT SET'}")
+
 def check_instagram_credentials(username, password):
     """Check Instagram credentials using Playwright."""
     logger.info(f"[check_instagram_credentials] Checking credentials for username: {username}")
@@ -52,12 +56,23 @@ def check_instagram_credentials(username, password):
 def fetch_user_instagram_profile_data(username_to_discover):
     """Fetch Instagram user profile data from Facebook Graph API."""
     logger.info(f"[fetch_user_instagram_profile_data] Fetching profile for: {username_to_discover}")
+    
+    # Check if required environment variables are set
+    if not ig_user_id:
+        logger.error("[fetch_user_instagram_profile_data] instagram_account_id environment variable not set")
+        return None
+    
+    if not long_term_access_token:
+        logger.error("[fetch_user_instagram_profile_data] long_term_access_token environment variable not set")
+        return None
+    
     try:
         connection.ensure_connection()
         logger.info("[fetch_user_instagram_profile_data] Database connection OK.")
     except Exception as db_exc:
         logger.error(f"[fetch_user_instagram_profile_data] Database connection error: {db_exc}")
         return None
+    
     url = f"https://graph.facebook.com/v23.0/{ig_user_id}"
     params = {
         "fields": f"business_discovery.username({username_to_discover}){{username, name, profile_picture_url, followers_count, follows_count, media_count}}",
