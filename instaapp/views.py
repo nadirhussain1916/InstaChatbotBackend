@@ -178,7 +178,7 @@ class CustomSignUpView(APIView):
                     logger.error(f"[InstagramFetchData] Failed to fetch Instagram profile data for: {username}")
                     return Response({
                         "status": "error",
-                        "message": "Instagram profile data fetch failed."
+                        "message": "Instagram profile data fetch failed. Please check server configuration."
                     }, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
