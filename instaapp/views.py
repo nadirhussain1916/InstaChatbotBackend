@@ -96,12 +96,11 @@ class CustomSignUpView(APIView):
                 if business_discovery_res:
                     user = User.objects.create_user(username=username, password=password)
                     if user:
-                        print('----------12123')
                         Instagram_User.objects.create(
                             user=user,
                             username=username,
                             password=encrypt_password(password),
-                            is_insta_api = False
+                            is_insta_api=False
                         )
 
                         user = authenticate(username=username, password=password)
