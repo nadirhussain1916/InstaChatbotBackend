@@ -91,7 +91,6 @@ class CustomSignUpView(APIView):
             res = fetch_user_instagram_profile_data(username)
             logger.info(f"[InstagramFetchData] Response: {res}")
             print('=-=-=-=-res=-=-=-=-',res)
-            is_insta_api = False
             if res:
                 business_discovery_res = res.get("business_discovery")
                 if business_discovery_res:
@@ -101,7 +100,8 @@ class CustomSignUpView(APIView):
                         Instagram_User.objects.create(
                             user=user,
                             username=username,
-                            password=encrypt_password(password)
+                            password=encrypt_password(password),
+                            is_insta_api = False
                         )
 
                         user = authenticate(username=username, password=password)
