@@ -310,11 +310,15 @@ class InstagramFetchData(APIView):
 def get_user_profile(request):
     """Return the profile of the authenticated Instagram user."""
     logger.info(f"[get_user_profile] GET request by user: {request.user.username}")
+    
     auth_username = request.user.username
+    role = "admin" if request.user.is_staff else "user"  # use request.user.is_staff directly
     user = get_object_or_404(Instagram_User, username=auth_username)
     serializer = InstagramUserSerializer(user)
+    response_data = serializer.data
+    response_data["role"] = role  # add role to the response
     logger.info(f"[get_user_profile] Profile data returned for user: {auth_username}. Response: {serializer.data}")
-    return Response(serializer.data)
+    return Response(response_data)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
