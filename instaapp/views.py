@@ -91,6 +91,7 @@ class CustomSignUpView(APIView):
             res = fetch_user_instagram_profile_data(username)
             logger.info(f"[InstagramFetchData] Response: {res}")
             print('=-=-=-=-res=-=-=-=-',res)
+            is_insta_api = False
             if res:
                 business_discovery_res = res.get("business_discovery")
                 if business_discovery_res:
