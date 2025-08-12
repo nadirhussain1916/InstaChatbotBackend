@@ -1,4 +1,7 @@
 .env
 # Ignore Python cache in all subdirectories
 **/__pycache__/
+venv
+medias
+media
 # Ignore node_modules
