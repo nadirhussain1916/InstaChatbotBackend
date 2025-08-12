@@ -3,8 +3,13 @@ from datetime import timedelta
 from dotenv import load_dotenv
 import os
 load_dotenv()
-import pymysql
-pymysql.install_as_MySQLdb()
+
+# Only install MySQL adapter if using MySQL database
+import os
+if os.getenv('DATABASE_URL') and 'mysql' in os.getenv('DATABASE_URL', ''):
+    import pymysql
+    pymysql.install_as_MySQLdb()
+
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
@@ -15,8 +20,27 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', "django-insecure-^baredo@4py=(i6l=w0
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
-CORS_ALLOW_ALL_ORIGINS = True
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    'instachatbotbackend-production.up.railway.app',
+] + os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else [
+    'localhost',
+    '127.0.0.1', 
+    '0.0.0.0',
+    'instachatbotbackend-production.up.railway.app',
+]
+
+# CORS settings
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
+
+# Specific allowed origins for production
+CORS_ALLOWED_ORIGINS = [
+    'https://insta-chatbot-frontend.vercel.app',
+    'https://instachatbotbackend-production.up.railway.app',
+] + (os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else [])
 
 # CSRF trusted origins for cross-domain requests
 CSRF_TRUSTED_ORIGINS = [
@@ -24,7 +48,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://instachatbotbackend-production.up.railway.app',
     'http://127.0.0.1:8000',  # for local development
     'http://localhost:8000',  # for local development
-]
+] + (os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.getenv('CSRF_TRUSTED_ORIGINS') else [])
 
 
 # Application definition
@@ -85,22 +109,33 @@ REST_FRAMEWORK = {
 }
 
 
-# Database
+# Database configuration
+import dj_database_url
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'instagram'),
-        'USER': os.environ.get('DB_USER', 'neondb_owner'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', ''),
-        'PORT': os.environ.get('DB_PORT', '5432'),
-        'OPTIONS': {
-            'sslmode': os.environ.get('DB_SSLMODE', 'require'),
-            'channel_binding': os.environ.get('DB_CHANNEL_BINDING', 'require'),
-        },
+# Check if DATABASE_URL is provided (common on Railway/Heroku)
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if DATABASE_URL:
+    # Use DATABASE_URL for production (Railway/Heroku style)
+    DATABASES = {
+        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=True)
     }
-}
+else:
+    # Use individual environment variables (Neon style)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'instagram'),
+            'USER': os.environ.get('DB_USER', 'neondb_owner'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', ''),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+            'OPTIONS': {
+                'sslmode': os.environ.get('DB_SSLMODE', 'require'),
+                'channel_binding': os.environ.get('DB_CHANNEL_BINDING', 'require'),
+            },
+        }
+    }
 
 
 
@@ -168,6 +203,17 @@ FINE_TUNED_MODEL_ID = os.getenv('FINE_TUNED_MODEL_ID', 'ft:gpt-3.5-turbo-0125:ka
 
 # secret key for encrypt or decrypt pasword
 SECRET_ENCRYPTION_KEY = os.environ.get('FERNET_KEY')
+
+# Production Security Settings
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Instagram OAuth2 settings
 SOCIAL_AUTH_INSTAGRAM_KEY = os.getenv('INSTAGRAM_CLIENT_ID', "1717476175794446")        # Client ID
