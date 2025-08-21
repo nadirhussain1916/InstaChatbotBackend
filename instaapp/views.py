@@ -7,6 +7,7 @@ from rest_framework.decorators import api_view, permission_classes
 import threading
 import os
 import uuid
+from io import BytesIO
 
 import re
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -350,44 +351,13 @@ class onBoardingAnswersView(APIView):
         except json.JSONDecodeError:
             return Response({"error": "Invalid JSON format for answers."}, status=400)
 
-        # Handle uploaded file (optional)
-        uploaded_file = request.FILES.get("file")
-        extracted_text = ""
+        uploaded_files = request.FILES.getlist("file")
 
-        if uploaded_file:
-            content_type = uploaded_file.content_type
-            print("Uploaded Content-Type:", uploaded_file.content_type)
-            try:
-                if content_type == "application/pdf":
-                    extracted_text = self.extract_text_from_pdf(uploaded_file)
-                elif content_type in [
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "application/msword"
-                ]:
-                    extracted_text = self.extract_text_from_doc(uploaded_file)
-                elif content_type.startswith("image/"):
-                    extracted_text = self.extract_text_from_image(uploaded_file)
-                elif content_type == "text/plain":
-                    extracted_text = uploaded_file.read().decode("utf-8")
-                    print("Extracted text from plain file:", extracted_text)
-                else:
-                    return Response({"error": "Unsupported file type."}, status=400)
-
-                # Save extracted content as a special answer
-                onBoardingAnswer.objects.update_or_create(
-                    user=request.user,
-                    question="file_upload_content",
-                    defaults={'answer': extracted_text}
-                )
-
-            except Exception as e:
-                return Response({"error": f"File processing error: {str(e)}"}, status=500)
-
-        # Skip if no manual answers and no file
-        if not answers and not extracted_text:
+        # Quick validation
+        if not answers and not uploaded_files:
             return Response({"error": "Answers or file are required."}, status=400)
 
-        # Prevent duplicate AI response
+        # Check if AI response already exists
         ai_response_obj = onBoardingAnswer.objects.filter(
             user=request.user,
             question="onBoardingAiResponse"
@@ -398,6 +368,63 @@ class onBoardingAnswersView(APIView):
                 "ai_response": ai_response_obj.answer
             }, status=200)
 
+        # 📌 Read all uploaded files into memory before starting background thread
+        files_data = [(f.name, f.content_type, f.read()) for f in uploaded_files]
+
+        # 🚀 Spawn background thread for heavy processing
+        thread = threading.Thread(
+            target=self.process_onboarding,
+            args=(request.user, answers, files_data)
+        )
+        thread.start()
+
+        # ✅ Instant response
+        return Response({"message": "Answers received. Processing in background."}, status=202)
+
+    def process_onboarding(self, user, answers, files_data):
+        """
+        Runs in background thread.
+        Handles file extraction, saving answers, AI response generation.
+        """
+        try:
+            extracted_texts = []
+
+            for filename, content_type, file_bytes in files_data:
+                file_obj = BytesIO(file_bytes)
+                file_obj.name = filename  # for libraries that check .name
+
+                try:
+                    if content_type == "application/pdf":
+                        text = self.extract_text_from_pdf(file_obj)
+                    elif content_type in [
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/msword"
+                    ]:
+                        text = self.extract_text_from_doc(file_obj)
+                    elif content_type.startswith("image/"):
+                        text = self.extract_text_from_image(file_obj)
+                    elif content_type == "text/plain":
+                        text = file_bytes.decode("utf-8")
+                    else:
+                        text = ""
+
+                    if text:
+                        extracted_texts.append(text)
+
+                except Exception as e:
+                    logging.error(f"File processing error: {str(e)}", exc_info=True)
+
+            # Save all extracted contents into one record
+            if extracted_texts:
+                onBoardingAnswer.objects.update_or_create(
+                    user=user,
+                    question="file_upload_content",
+                    defaults={'answer': "\n\n".join(extracted_texts)}
+                )
+
+        except Exception as e:
+            logging.error(f"File processing error: {str(e)}", exc_info=True)
+
         # Save text-based answers
         for item in answers:
             question_text = item.get('question')
@@ -405,34 +432,32 @@ class onBoardingAnswersView(APIView):
             if not question_text or not answer_text:
                 continue
             onBoardingAnswer.objects.update_or_create(
-                user=request.user,
+                user=user,
                 question=question_text,
                 defaults={'answer': answer_text}
             )
 
-        # Get all user answers
-        user_answers_qs = onBoardingAnswer.objects.filter(user=request.user)
+        # Collect all answers
+        user_answers_qs = onBoardingAnswer.objects.filter(user=user)
         if not user_answers_qs.exists():
-            return Response({"error": "No onboarding data found for the user."}, status=400)
+            return  # Nothing to process
 
         # Generate AI response
         try:
             user_persona = build_user_persona(user_answers_qs)
             prompt = (
-                "Based on the following user persona, write a short and warm welcome message in 3 to 5 lines. "
-                "Keep it friendly, personalized, and clearly mention how you can help going forward:\n\n"
+                "Based on the following user persona, write a short and warm welcome message "
+                "in 3 to 5 lines. Keep it friendly, personalized, and clearly mention how you can help:\n\n"
                 f"{user_persona}"
             )
             ai_response = create_chat_completion(user_persona, prompt)
             onBoardingAnswer.objects.update_or_create(
-                user=request.user,
+                user=user,
                 question="onBoardingAiResponse",
                 defaults={'answer': ai_response}
             )
         except Exception as e:
-            return Response({"error": f"AI generation failed: {str(e)}"}, status=500)
-
-        return Response({"message": "Answers submitted successfully."}, status=200)
+            logging.error(f"AI generation failed: {str(e)}", exc_info=True)
 
     # Text extractors
     def extract_text_from_pdf(self, file):
@@ -445,35 +470,16 @@ class onBoardingAnswersView(APIView):
         return "\n".join(para.text for para in Document(file).paragraphs)
 
     def extract_text_from_image(self, file):
-        """Extract text from a local image file using OCR."""
         from PIL import Image
         import pytesseract
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         try:
-            logger.info(f"[InstagramScraper] Processing local image for OCR: {file}")
             image = Image.open(file)
-
             if image.mode != 'RGB':
-                logger.info(f"[InstagramScraper] Converting image from {image.mode} to RGB")
                 image = image.convert('RGB')
-
-            logger.info("[InstagramScraper] Running OCR on local image...")
             text = pytesseract.image_to_string(image)
-            extracted_text = text.strip()
-
-            if extracted_text:
-                logger.info(f"[InstagramScraper] OCR successful - extracted {len(extracted_text)} characters")
-                logger.info(f"[InstagramScraper] OCR text preview: {extracted_text[:100]}..." if len(extracted_text) > 100 else f"[InstagramScraper] OCR text: {extracted_text}")
-            else:
-                logger.info("[InstagramScraper] OCR completed but no text found in image")
-
-            return extracted_text
-
+            return text.strip()
         except Exception as e:
-            logger.error(f"[InstagramScraper] Error during OCR on local file: {str(e)}", exc_info=True)
+            logging.error(f"OCR error: {str(e)}", exc_info=True)
             return ""
 
     def get(self, request):
@@ -483,13 +489,9 @@ class onBoardingAnswersView(APIView):
         ).first()
 
         if ai_response_obj:
-            return Response({
-                "ai_response": ai_response_obj.answer
-            }, status=status.HTTP_200_OK)
+            return Response({"ai_response": ai_response_obj.answer}, status=status.HTTP_200_OK)
 
-        return Response({
-            "error": "No onboarding AI response found for this user."
-        }, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": "No onboarding AI response found for this user."}, status=status.HTTP_404_NOT_FOUND)
 
 class UserChatListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -527,7 +529,7 @@ class ChatThreadCreateView(APIView):
 def build_user_persona(user_answers):
     # Convert queryset of models to dict
     answers = {qa.question.lower(): qa.answer for qa in user_answers}
-    print("User answers:", answers)
+    # print("User answers:", answers)
     # Same as before...
     first_name = answers.get("what's your first name?", "Unknown")
     help_statement = answers.get("in one sentence, what do you help people do?", "Not specified")
