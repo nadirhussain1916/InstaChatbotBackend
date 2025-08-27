@@ -111,33 +111,21 @@ REST_FRAMEWORK = {
 }
 
 
-# Database configuration
-import dj_database_url
-
-# Check if DATABASE_URL is provided (common on Railway/Heroku)
-DATABASE_URL = config('DATABASE_URL')
-
-if DATABASE_URL:
-    # Use DATABASE_URL for production (Railway/Heroku style)
-    DATABASES = {
-        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=True)
+# Use individual environment variables (Neon style)
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME', 'instagram'),
+        'USER': config('DB_USER', 'neondb_owner'),
+        'PASSWORD': config('DB_PASSWORD', ''),
+        'HOST': config('DB_HOST', ''),
+        'PORT': config('DB_PORT', '5432'),
+        'OPTIONS': {
+            'sslmode': config('DB_SSLMODE', 'require'),
+            'channel_binding': config('DB_CHANNEL_BINDING', 'require'),
+        },
     }
-else:
-    # Use individual environment variables (Neon style)
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': config('DB_NAME', 'instagram'),
-            'USER': config('DB_USER', 'neondb_owner'),
-            'PASSWORD': config('DB_PASSWORD', ''),
-            'HOST': config('DB_HOST', ''),
-            'PORT': config('DB_PORT', '5432'),
-            'OPTIONS': {
-                'sslmode': config('DB_SSLMODE', 'require'),
-                'channel_binding': config('DB_CHANNEL_BINDING', 'require'),
-            },
-        }
-    }
+}
 
 
 
