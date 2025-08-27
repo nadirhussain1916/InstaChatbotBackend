@@ -3,30 +3,32 @@ from datetime import timedelta
 from dotenv import load_dotenv
 import os
 load_dotenv()
+from decouple import config
+
 
 # Only install MySQL adapter if using MySQL database
 import os
-if os.getenv('DATABASE_URL') and 'mysql' in os.getenv('DATABASE_URL', ''):
+if config('DATABASE_URL') and 'mysql' in config('DATABASE_URL', ''):
     import pymysql
     pymysql.install_as_MySQLdb()
 
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_API_KEY = config('OPENAI_API_KEY')
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', "django-insecure-^baredo@4py=(i6l=w0o6*7%u$*u%p#mbf2+(o@$()b#lh%qrl")
+SECRET_KEY = config('DJANGO_SECRET_KEY', "django-insecure-^baredo@4py=(i6l=w0o6*7%u$*u%p#mbf2+(o@$()b#lh%qrl")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+DEBUG = config('DEBUG', 'False').lower() == 'true'
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
     'instachatbotbackend-production.up.railway.app',
-] + os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else [
+] + config('ALLOWED_HOSTS', '').split(',') if config('ALLOWED_HOSTS') else [
     'localhost',
     '127.0.0.1', 
     '0.0.0.0',
@@ -40,7 +42,7 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
 CORS_ALLOWED_ORIGINS = [
     'https://insta-chatbot-frontend.vercel.app',
     'https://instachatbotbackend-production.up.railway.app',
-] + (os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else [])
+] + (config('CORS_ALLOWED_ORIGINS', '').split(',') if config('CORS_ALLOWED_ORIGINS') else [])
 
 # CSRF trusted origins for cross-domain requests
 CSRF_TRUSTED_ORIGINS = [
@@ -48,7 +50,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://instachatbotbackend-production.up.railway.app',
     'http://127.0.0.1:8000',  # for local development
     'http://localhost:8000',  # for local development
-] + (os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.getenv('CSRF_TRUSTED_ORIGINS') else [])
+] + (config('CSRF_TRUSTED_ORIGINS', '').split(',') if config('CSRF_TRUSTED_ORIGINS') else [])
 
 
 # Application definition
@@ -113,7 +115,7 @@ REST_FRAMEWORK = {
 import dj_database_url
 
 # Check if DATABASE_URL is provided (common on Railway/Heroku)
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = config('DATABASE_URL')
 
 if DATABASE_URL:
     # Use DATABASE_URL for production (Railway/Heroku style)
@@ -125,14 +127,14 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DB_NAME', 'instagram'),
-            'USER': os.environ.get('DB_USER', 'neondb_owner'),
-            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-            'HOST': os.environ.get('DB_HOST', ''),
-            'PORT': os.environ.get('DB_PORT', '5432'),
+            'NAME': config('DB_NAME', 'instagram'),
+            'USER': config('DB_USER', 'neondb_owner'),
+            'PASSWORD': config('DB_PASSWORD', ''),
+            'HOST': config('DB_HOST', ''),
+            'PORT': config('DB_PORT', '5432'),
             'OPTIONS': {
-                'sslmode': os.environ.get('DB_SSLMODE', 'require'),
-                'channel_binding': os.environ.get('DB_CHANNEL_BINDING', 'require'),
+                'sslmode': config('DB_SSLMODE', 'require'),
+                'channel_binding': config('DB_CHANNEL_BINDING', 'require'),
             },
         }
     }
@@ -192,17 +194,17 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Cloudinary configuration
 CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
-    'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
-    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
+    'CLOUD_NAME': config('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': config('CLOUDINARY_API_KEY'),
+    'API_SECRET': config('CLOUDINARY_API_SECRET'),
 }
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 # OpenAI Configuration
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-FINE_TUNED_MODEL_ID = os.getenv('FINE_TUNED_MODEL_ID', 'ft:gpt-3.5-turbo-0125:kar-brulhart-inc::BlEigy85')
+OPENAI_API_KEY = config('OPENAI_API_KEY')
+FINE_TUNED_MODEL_ID = config('FINE_TUNED_MODEL_ID', 'ft:gpt-3.5-turbo-0125:kar-brulhart-inc::BlEigy85')
 
 # secret key for encrypt or decrypt pasword
-SECRET_ENCRYPTION_KEY = os.environ.get('FERNET_KEY')
+SECRET_ENCRYPTION_KEY = config('FERNET_KEY')
 
 # Production Security Settings
 if not DEBUG:
@@ -216,9 +218,9 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Instagram OAuth2 settings
-SOCIAL_AUTH_INSTAGRAM_KEY = os.getenv('INSTAGRAM_CLIENT_ID', "1717476175794446")        # Client ID
-SOCIAL_AUTH_INSTAGRAM_SECRET = os.getenv('INSTAGRAM_CLIENT_SECRET', "98750104cc7f71f0f75256d05e40fd2c")  # Client Secret
-SOCIAL_AUTH_INSTAGRAM_REDIRECT_URI = os.getenv('INSTAGRAM_REDIRECT_URI', 'http://127.0.0.1:8000/complete/instagram/')
+SOCIAL_AUTH_INSTAGRAM_KEY = config('INSTAGRAM_CLIENT_ID', "1717476175794446")        # Client ID
+SOCIAL_AUTH_INSTAGRAM_SECRET = config('INSTAGRAM_CLIENT_SECRET', "98750104cc7f71f0f75256d05e40fd2c")  # Client Secret
+SOCIAL_AUTH_INSTAGRAM_REDIRECT_URI = config('INSTAGRAM_REDIRECT_URI', 'http://127.0.0.1:8000/complete/instagram/')
 SOCIAL_AUTH_INSTAGRAM_SCOPE = ['user_profile', 'user_media']
 
 LOGIN_URL = 'login'
