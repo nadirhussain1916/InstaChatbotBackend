@@ -28,6 +28,7 @@ import json
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status,permissions
+from decouple import config
 
 from .models import onBoardingAnswer
 
@@ -48,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 fernet = Fernet(settings.SECRET_ENCRYPTION_KEY)
 
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_API_KEY = config('OPENAI_API_KEY')
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 SYSTEM_PROMPT = "You are a helpful assistant that creates engaging Instagram carousel content."
