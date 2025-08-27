@@ -652,7 +652,7 @@ class ContentChatView(APIView):
                 ChatMessage.objects.create(thread=thread, sender="ai", message=question)
                 ChatMessage.objects.create(thread=thread, sender="user", message=answer)
                 conversation_history += f"User: {question}\nAI: {answer}\n"
-
+        system_prompt_name = ""
         # Load existing messages from DB
         messages = thread.messages.order_by('timestamp')
         for msg in messages:
