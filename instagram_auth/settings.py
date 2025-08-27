@@ -8,14 +8,11 @@ from decouple import config
 
 # Only install MySQL adapter if using MySQL database
 import os
-if config('DATABASE_URL') and 'mysql' in config('DATABASE_URL', ''):
-    import pymysql
-    pymysql.install_as_MySQLdb()
+
 
 OPENAI_API_KEY = config('OPENAI_API_KEY')
 BASE_DIR = Path(__file__).resolve().parent.parent
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config('DJANGO_SECRET_KEY', "django-insecure-^baredo@4py=(i6l=w0o6*7%u$*u%p#mbf2+(o@$()b#lh%qrl")
@@ -23,34 +20,11 @@ SECRET_KEY = config('DJANGO_SECRET_KEY', "django-insecure-^baredo@4py=(i6l=w0o6*
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', 'False').lower() == 'true'
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-    'instachatbotbackend-production.up.railway.app',
-] + config('ALLOWED_HOSTS', '').split(',') if config('ALLOWED_HOSTS') else [
-    'localhost',
-    '127.0.0.1', 
-    '0.0.0.0',
-    'instachatbotbackend-production.up.railway.app',
-]
+ALLOWED_HOSTS = ['*']
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
 
-# Specific allowed origins for production
-CORS_ALLOWED_ORIGINS = [
-    'https://insta-chatbot-frontend.vercel.app',
-    'https://instachatbotbackend-production.up.railway.app',
-] + (config('CORS_ALLOWED_ORIGINS', '').split(',') if config('CORS_ALLOWED_ORIGINS') else [])
-
-# CSRF trusted origins for cross-domain requests
-CSRF_TRUSTED_ORIGINS = [
-    'https://insta-chatbot-frontend.vercel.app',
-    'https://instachatbotbackend-production.up.railway.app',
-    'http://127.0.0.1:8000',  # for local development
-    'http://localhost:8000',  # for local development
-] + (config('CSRF_TRUSTED_ORIGINS', '').split(',') if config('CSRF_TRUSTED_ORIGINS') else [])
 
 
 # Application definition
