@@ -13,11 +13,11 @@ import instaloader
 from instaapp.header import header_set
 import time, random
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-
+from decouple import config
 logger = logging.getLogger(__name__)
 
-ig_user_id = os.getenv('instagram_account_id')
-long_term_access_token = os.getenv('long_term_access_token')
+ig_user_id = config('instagram_account_id')
+long_term_access_token = config('long_term_access_token')
 
 # Debug logging for environment variables
 logger.info(f"[Environment Check] ig_user_id: {'SET' if ig_user_id else 'NOT SET'}")
